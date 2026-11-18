@@ -5,18 +5,28 @@
 [![Validate](https://github.com/leinemann/ha-meter-vision/actions/workflows/validate.yml/badge.svg)](https://github.com/leinemann/ha-meter-vision/actions/workflows/validate.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-**Read water, gas and electricity meters with a camera and Claude, using your own API key.**
+**Read water, gas and electricity meters with a camera and the vision model of your choice.**
 
 Point a camera at the counter, let a vision model copy the digits, and get a reading sensor ready for
 the Energy dashboard. Every reading is checked before it is used, so a misread digit never reaches your
-statistics. There's no cloud service of its own and no extra Python dependencies. Calls go through Home
-Assistant's built-in [AI Task](https://www.home-assistant.io/integrations/ai_task/) with the key you entered
-in the Anthropic integration. Any other vision-capable AI Task provider (Google Gemini, OpenAI, Ollama)
-works the same way.
+statistics. There's no cloud service of its own and no extra Python dependencies. Readings go through
+Home Assistant's built-in [AI Task](https://www.home-assistant.io/integrations/ai_task/), so any AI Task
+entity that reads images works, with your own key or none at all:
+
+| Provider | Home Assistant integration | Notes |
+| --- | --- | --- |
+| Claude (Anthropic) | [Anthropic](https://www.home-assistant.io/integrations/anthropic/) | Your own API key. |
+| OpenAI (GPT models) | [OpenAI](https://www.home-assistant.io/integrations/openai_conversation/) | Your own API key. |
+| Kimi (Moonshot AI) and many others | [OpenRouter](https://www.home-assistant.io/integrations/open_router/) | One key for many providers; pick a model that takes images. |
+| Google Gemini | [Google Generative AI](https://www.home-assistant.io/integrations/google_generative_ai_conversation/) | Your own API key. |
+| Local Qwen-VL, Gemma, LLaVA… | [Ollama](https://www.home-assistant.io/integrations/ollama/) | Runs on your own hardware: no key, no cost per reading. |
+
+Two providers can be combined: a main AI Task entity and a fallback, for example a local model with a
+cloud model behind it.
 
 > **New here? Read the [setup guide](docs/setup-guide.md).** It covers the camera options (ESP32-CAM with
-> ESPHome, or an AI-on-the-Edge device you already have), adding Claude with your own key, model choice
-> and cost per reading, and mounting the camera without glare or spiders.
+> ESPHome, or an AI-on-the-Edge device you already have), each AI provider, model choice and cost per
+> reading, and mounting the camera without glare or spiders.
 
 ## Why another meter reader
 
@@ -57,9 +67,8 @@ timer → (light on, warm-up) → frame → (light off) → AI Task: "copy the d
 
 - Home Assistant 2025.8 or newer.
 - A camera entity that shows the counter. See [camera options](docs/setup-guide.md#1-the-camera).
-- An AI Task entity that reads images. The [Anthropic integration](https://www.home-assistant.io/integrations/anthropic/)
-  with your own API key is the documented default; [models and cost](docs/setup-guide.md#3-model-and-cost)
-  are in the setup guide.
+- An AI Task entity that reads images, from any of the providers above. See
+  [the AI model](docs/setup-guide.md#2-the-ai-model) and [model and cost](docs/setup-guide.md#3-model-and-cost).
 
 ## Installation
 
@@ -193,8 +202,9 @@ garden hose), raise it from the device page.
 The model writes the *lower* number of a wheel caught between two numbers and reports
 `last_wheel_rolling`. Without a dial the true value is somewhere between that number and the next one,
 which the validator allows for. With a dial, the wheel turns while the first dial passes from 9 to 0:
-when the wheel is rolling and the dial reads 0, 1 or 2, the wheel has almost finished its turn, so the
-higher number is used.
+when the wheel is rolling and the dial reads 0, 1 or 2, the wheel may already be on the higher number,
+so the range is widened by one wheel step. The value itself is never raised on the model's word: a
+wrongly set rolling flag must not push the reading above the meter.
 
 ## Troubleshooting
 
@@ -204,7 +214,9 @@ higher number is used.
 - **Readings are `decrease`.** Usually a misread wheel. If the accepted reading is really too high, set the
   correct value with `meter_vision.set_reading`.
 - **Readings are `error`.** See the `last_error` attribute of the last result sensor. The AI Task entity
-  must support attachments and structured output.
+  must support attachments and structured output, and the model must take images.
+- **The dial is never read.** `dials_read` on the last result sensor shows what the model returned, and
+  the log says when the dials were unreadable and only the wheels were used.
 - **Something else.** Attach the diagnostics (*device page → ⋮ → Download diagnostics*) to a
   [new issue](https://github.com/leinemann/ha-meter-vision/issues).
 
@@ -230,4 +242,4 @@ was changed.
 Copyright © 2026 The ha-ai-meter-reader contributors and the ha-meter-vision contributors. Released
 under the [GNU General Public License v3.0 or later](LICENSE).
 
-Not affiliated with or endorsed by Anthropic or Home Assistant.
+Not affiliated with or endorsed by Anthropic, OpenAI, Moonshot AI, Alibaba, Ollama or Home Assistant.

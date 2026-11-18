@@ -95,7 +95,9 @@ class ReadingValidator:
             if diff < -_EPSILON:
                 if diff + tolerance >= -_EPSILON:
                     # The frame agrees with the accepted value: keep it, never lower it.
-                    self._accept(self.value, now)
+                    # value_at stays: the allowed growth is measured from when the
+                    # value was actually reached, not from this frame.
+                    self.pending = []
                     return Outcome.ACCEPTED
                 self.pending = []
                 return Outcome.DECREASE

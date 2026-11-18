@@ -124,7 +124,8 @@ def test_a_wheel_between_two_numbers_is_not_a_decrease() -> None:
     # Read as 140.925 on the next frame (the wheel half way to 6): consistent, kept at 140.926.
     assert validator.check(140.925, _at(15), 0.3, INTERVAL, tolerance=0.001) is Outcome.ACCEPTED
     assert validator.value == 140.926
-    assert validator.value_at == _at(15)
+    # The allowed growth is still measured from when 140.926 was reached.
+    assert validator.value_at == T0
     assert validator.check(140.927, _at(30), 0.3, INTERVAL, tolerance=0.001) is Outcome.ACCEPTED
     assert validator.value == 140.927
 

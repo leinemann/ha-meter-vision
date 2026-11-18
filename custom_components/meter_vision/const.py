@@ -81,7 +81,7 @@ MAX_DECIMALS: Final = 3
 # Small pointer dials after the decimal wheels (x0.0001, x0.001, ...), each one more decimal.
 MAX_DIALS: Final = 4
 # The last wheel turns while the first dial passes 9 → 0: a rolling wheel with that
-# dial at this digit or below has finished its turn (the higher number is the right one).
+# dial at this digit or below may already be on the higher number (the range is widened).
 ROLLOVER_DIAL_MAX: Final = 2
 
 # ------------------------------------------------------------ plausibility

@@ -20,11 +20,13 @@ validator, the last-frame image, the problem alert, the read-now button and the 
   accepted value instead of being rejected as a decrease. An unreadable last wheel alone gives a lower
   bound instead of discarding the frame.
 - **Pointer dials.** New *Pointer dials* option for the small `x0.0001`-style dials after the decimal
-  wheels: each adds a decimal, and the first one tells which number a rolling last wheel is really on.
+  wheels: each adds a decimal, and the first one widens the range when a rolling last wheel may already
+  be on the higher number.
 - Attributes `pointer_dials` on the reading sensor, `dials_read` and `last_wheel_rolling` on the last
   result sensor.
 - Setup guide: camera options (ESP32-CAM with ESPHome, an AI-on-the-Edge device as a generic camera),
-  Claude with your own API key, model choice and cost per reading, mounting against glare and spiders.
+  AI providers (Claude, OpenAI, Kimi through OpenRouter, a local Qwen vision model through Ollama), model
+  choice and cost per reading, comparing providers, mounting against glare and spiders.
 
 ### Changed
 

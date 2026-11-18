@@ -12,7 +12,7 @@ It is distributed under the same licence (see [`LICENSE`](LICENSE)).
 - `reading.py`: the model reports whether the last wheel is between two numbers (`last_wheel_rolling`)
   and is told never to mark such a wheel unreadable. Readings carry a tolerance. An unreadable last
   wheel alone gives a lower bound instead of a rejected frame. Optional pointer dials
-  (`pointer_dials` option) add decimals and resolve a rolling last wheel.
+  (`pointer_dials` option) add decimals and widen the range of a rolling last wheel.
 - `validator.py`: a reading lower than the accepted value but within its own tolerance keeps the
   accepted value instead of counting as a decrease.
 - `monitor.py`, `config_flow.py`, `sensor.py`, `number.py`, translations and card: the pointer-dial

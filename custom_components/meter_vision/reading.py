@@ -137,6 +137,7 @@ class Reading:
     tolerance: float = 0.0  # the meter may really be up to this much above ``value``
     rolling: bool = False  # the model saw the last wheel between two numbers
     dials: str | None = None  # dial digits as returned, None when the meter has no dials
+    dials_used: bool = False  # the dial digits were valid and are part of ``value``
 
 
 def _score(value: Any) -> int:
@@ -193,11 +194,21 @@ def parse_reading(data: Any, digits: int = 0, decimals: int = 0, dials: int = 0)
         tolerance = 10.0**-precision
         value += int(dials_raw) * tolerance
         # The last wheel turns while the first dial passes from 9 to 0. Rolling
-        # with that dial just past 0 means the wheel is finishing its turn: the
-        # lower number the model wrote is one step behind the dial.
+        # with that dial just past 0 means the wheel may be finishing its turn,
+        # one step ahead of the number the model wrote. Both inputs come from the
+        # model, so the value is never raised on them: only the range is widened.
         if rolling and int(dials_raw[0]) <= ROLLOVER_DIAL_MAX:
-            value += step
+            tolerance += step
     shown = wheels.zfill(digits) if digits else wheels
     if last_unknown:
         shown = shown[:-1] + UNREADABLE_MARK
-    return Reading(shown, round(value, precision), confidence, None, round(tolerance, precision), rolling, dials_raw)
+    return Reading(
+        shown,
+        round(value, precision),
+        confidence,
+        None,
+        round(tolerance, precision),
+        rolling,
+        dials_raw,
+        precision > decimals,
+    )

@@ -105,14 +105,32 @@ def test_the_pointer_dial_adds_a_decimal() -> None:
     assert reading.value == 140.9257
     assert reading.tolerance == 0.0001
     assert reading.dials == "7"
+    assert reading.dials_used is True
 
 
-@pytest.mark.parametrize(("dial", "value"), [("0", 140.926), ("2", 140.9262), ("3", 140.9253), ("8", 140.9258)])
-def test_a_rolling_wheel_is_resolved_by_the_dial(dial: str, value: float) -> None:
+@pytest.mark.parametrize(
+    ("dial", "value", "tolerance"),
+    [("0", 140.925, 0.0011), ("2", 140.9252, 0.0011), ("3", 140.9253, 0.0001), ("8", 140.9258, 0.0001)],
+)
+def test_a_rolling_wheel_with_the_dial_just_past_0_widens_the_range(dial: str, value: float, tolerance: float) -> None:
     # The last wheel turns while the dial passes 9 → 0: with the dial just past 0
-    # the wheel is finishing its turn to the higher number.
+    # the wheel may already be on the higher number. The range covers it; the
+    # value is never raised on the model's word.
     data = {"digits": "00140925", "dials": dial, "last_wheel_rolling": True, "confidence": 8}
-    assert parse_reading(data, **FERRO, dials=1).value == value
+    reading = parse_reading(data, **FERRO, dials=1)
+    assert (reading.value, reading.tolerance) == (value, tolerance)
+
+
+@pytest.mark.parametrize(
+    ("wheels", "rolling", "true_value"),
+    [
+        ("00140926", True, 140.9261),  # rolling 5 → 6, but the model wrote the higher number
+        ("00140925", True, 140.9251),  # wheel settled on 5, rolling flag set by mistake
+    ],
+)
+def test_the_value_is_never_above_the_meter(wheels: str, rolling: bool, true_value: float) -> None:
+    data = {"digits": wheels, "dials": "1", "last_wheel_rolling": rolling, "confidence": 8}
+    assert parse_reading(data, **FERRO, dials=1).value <= true_value
 
 
 @pytest.mark.parametrize("dials", ["X", "", "12", None])
@@ -121,6 +139,7 @@ def test_an_unreadable_dial_falls_back_to_the_wheels(dials) -> None:
     assert reading.problem is None
     assert reading.value == 140.925
     assert reading.tolerance == 0.001
+    assert reading.dials_used is False
 
 
 def test_the_dial_is_ignored_when_the_last_wheel_is_unknown() -> None:

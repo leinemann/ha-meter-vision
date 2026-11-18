@@ -3,7 +3,8 @@
 From a meter in a cupboard to a reading sensor on the Energy dashboard, in four steps:
 
 1. [The camera](#1-the-camera): a frame of the counter that Home Assistant can fetch.
-2. [Claude with your own key](#2-claude-with-your-own-key): an AI Task entity that reads images.
+2. [The AI model](#2-the-ai-model): an AI Task entity that reads images (Claude, OpenAI, Kimi, a local
+   Qwen and others).
 3. [Model and cost](#3-model-and-cost): which model to pick, and what a reading costs.
 4. [Mounting](#4-mounting-glare-and-spiders): getting frames a model can read, month after month.
 
@@ -103,22 +104,83 @@ the meter* to say where the meter is in the frame if there is more than one.
 
 ---
 
-## 2. Claude with your own key
+## 2. The AI model
 
-Meter Vision never sees your key. It calls Home Assistant's `ai_task.generate_data` action, and Home
-Assistant's Anthropic integration makes the API call with the key you gave it.
+Meter Vision never sees an API key. It calls Home Assistant's `ai_task.generate_data` action with the
+frame and a short prompt, and the integration behind the AI Task entity does the rest. Any AI Task
+entity that **takes image attachments and returns structured data** works. These routes are checked
+against Home Assistant's own integration code:
 
-1. Create an API key in the [Anthropic Console](https://console.anthropic.com/) (*Settings → API keys*).
-   Add a little credit, and **set a monthly spend limit** (*Settings → Limits*): a reading costs a
-   fraction of a cent, so a limit of a few dollars is plenty and protects you from a misconfiguration.
-2. In Home Assistant: *Settings → Devices & services → Add integration → **Anthropic*** and paste the key.
-3. On the Anthropic integration page, make sure there is an **AI Task** entry (add one with *Add AI
-   Task* if there isn't). Open its options to choose the model (see below). Its entity is called
-   something like `ai_task.claude_ai_task`.
-4. Pick that entity as the *AI Task entity* in Meter Vision.
+| You want | Integration | Images | Structured data | Key |
+| --- | --- | --- | --- | --- |
+| Claude | Anthropic | ✓ | ✓ | Anthropic API key |
+| OpenAI GPT models | OpenAI | ✓ | ✓ | OpenAI API key |
+| Kimi, Qwen (hosted), Mistral, Llama… | OpenRouter | ✓ (if the model takes images) | ✓ (only such models are offered) | OpenRouter key |
+| Gemini | Google Generative AI | ✓ | ✓ | Google AI key |
+| A local model | Ollama | ✓ (vision models only) | ✓ | none |
 
-Want a backup? Add a second AI Task entity (another model, or another provider) as the *fallback AI Task
-entity* in the Meter Vision options. It's used when the first one is unavailable or fails.
+Whichever you choose, **set a monthly spend limit** in the provider's console. A reading costs a
+fraction of a cent, so a limit of a few dollars is plenty and protects you from a misconfiguration.
+
+### Claude (Anthropic)
+
+1. Create an API key in the [Anthropic Console](https://console.anthropic.com/) and add a little credit.
+2. *Settings → Devices & services → Add integration → **Anthropic*** and paste the key.
+3. On the integration page, make sure there is an **AI Task** entry (add one if there isn't) and choose
+   the model in its options. Its entity is called something like `ai_task.claude_ai_task`.
+
+### OpenAI
+
+1. Create an API key on [platform.openai.com](https://platform.openai.com/).
+2. *Add integration → **OpenAI*** and paste the key, then add or open its **AI Task** entry and pick a
+   model that takes images (the current GPT models do; the Codex models are tuned for code, and a
+   general GPT model is the better fit for reading a frame).
+
+Home Assistant's OpenAI integration talks to OpenAI only: it has no setting for another server address,
+so it can't be pointed at an OpenAI-compatible service such as Moonshot's own API or a local server.
+
+### Kimi (Moonshot AI) through OpenRouter
+
+Home Assistant has no Moonshot integration. The supported route is
+[OpenRouter](https://openrouter.ai/), which resells many providers' models behind one key:
+
+1. Create a key on openrouter.ai and add credit.
+2. *Add integration → **OpenRouter*** and paste the key, then add an **AI Task** entry.
+3. Choose a Kimi model. The list only offers models that support structured outputs; check on the
+   model's OpenRouter page that it also lists **image** input, because a text-only model can't read a
+   frame. (Not every Kimi model takes images, and the lineup changes: this guide doesn't name one.)
+
+The same route works for hosted Qwen-VL, Mistral and other vision models.
+
+### A local Qwen vision model through Ollama
+
+[Ollama](https://ollama.com/) runs open models on your own machine, for example a desktop or a small
+server with a GPU on the same network as Home Assistant. Readings then cost nothing and the frames never
+leave your network.
+
+1. On that machine, install Ollama and pull a Qwen vision model, for example:
+
+   ```bash
+   ollama pull qwen2.5vl:7b
+   ```
+
+   `qwen3-vl` models work too. Pick the size by memory: a 7–8B model needs roughly 6–8 GB of GPU memory
+   (or more RAM and a lot more time on a CPU). Text-only Qwen models (`qwen3`, `qwen2.5`) can't read
+   images.
+2. Make Ollama reachable from Home Assistant. By default it listens on `127.0.0.1` only. Set
+   `OLLAMA_HOST=0.0.0.0` in its environment and restart it, then check `http://<machine>:11434` answers
+   from another device. Only do this on a trusted network: Ollama has no authentication.
+3. *Add integration → **Ollama***, URL `http://<machine>:11434`, then add an **AI Task** entry and pick
+   the model.
+4. In the entry's options:
+   - turn **thinking off** if the model offers it (it slows each reading for no gain here);
+   - leave **keep alive** at its default of `-1`, so the model stays loaded between readings instead of
+     reloading every 15 minutes.
+
+Small local models read sharp, well-lit wheels well and struggle with glare, dirty glass and dials.
+The prompt is written for them: numbered rules, about 300 words, and a schema of three or four fields.
+Section 4 matters even more with a local model. A cloud model as the **fallback AI Task entity** is a
+good safety net: it is only called when the local one fails or is offline.
 
 ---
 
@@ -127,7 +189,12 @@ entity* in the Meter Vision options. It's used when the first one is unavailable
 Every reading is one call: one frame plus the instructions in, a few dozen tokens out. An unreadable
 frame is retried once, so a bad frame costs two calls.
 
-Rough cost per reading, at Anthropic's list prices of November 2026, for a 640×480 frame:
+- **Local (Ollama):** no cost per reading. A 7B vision model takes a few seconds per frame on a GPU.
+- **Cloud:** you pay per token. An image costs roughly *width × height ÷ 750* input tokens on Claude
+  (≈ 410 for 640×480); other providers count image tokens differently, but the order of magnitude is
+  similar. The instructions and schema add a few hundred tokens, and the answer is about 100 tokens out.
+
+For Claude, at Anthropic's list prices of November 2026:
 
 | Model | Price per million tokens (in / out) | Per reading | Every 15 min (≈2,900 / month) | Every hour (≈730 / month) |
 | --- | --- | --- | --- | --- |
@@ -135,23 +202,39 @@ Rough cost per reading, at Anthropic's list prices of November 2026, for a 640×
 | Claude Sonnet 5.5 | $2 / $10 | ≈ $0.003 | ≈ $9 | ≈ $2.50 |
 | Claude Opus 5.5 | $4 / $20 | ≈ $0.006 | ≈ $19 | ≈ $5 |
 
-How these were estimated: an image costs about *width × height ÷ 750* input tokens (≈ 410 for 640×480,
-≈ 640 for 800×600), the instructions and schema about 700 more, and the answer about 100 tokens out.
-**These are estimates, not measurements.** Models that think before answering bill that thinking as
-output tokens, and Home Assistant adds its own wrapper to the prompt. After the first day, check the
-real figure in the Anthropic Console under *Usage*. Prices change: see
-[anthropic.com/pricing](https://www.anthropic.com/pricing).
+For other cloud providers, multiply their per-token prices the same way (about 1,100 tokens in and
+100 out per reading). **These are estimates, not measurements.** Models that think before answering bill
+that thinking as output tokens, and Home Assistant adds its own wrapper to the prompt. After the first
+day, check the real figure in your provider's usage page.
 
 Which model:
 
-- **Start with Claude Haiku 5.5.** On a sharp, well-lit frame of mechanical wheels it's the cheapest
-  option by far and fast.
-- **Move to Claude Sonnet 5.5** if the *Last result* sensor often shows `unreadable` or the confidence
-  stays low: older meters with scratched glass, fogged dials, LCD displays at an angle.
-- **Opus** is rarely worth it for this task. Fix the frame first (section 4).
+- **Start with the cheapest vision model of your provider** (Claude Haiku, a small GPT model, or a local
+  7B Qwen-VL). Mechanical wheels in a sharp frame are an easy task.
+- **Move up a size** if the *Last result* sensor often shows `unreadable` or the confidence stays low:
+  older meters with scratched glass, fogged dials, LCD displays at an angle.
+- Before moving up, fix the frame (section 4). It helps every model more than a bigger one does.
 
 Which interval: water usually only needs **30–60 minutes** for hourly graphs and leak checks, which cuts
-the cost by 2–4×. Read more often when you want to see individual events (a shower, a pool top-up).
+a cloud bill by 2–4×. Read more often when you want to see individual events (a shower, a pool top-up).
+
+### Comparing providers on your own meter
+
+The plausibility check makes providers interchangeable: whichever model reads the frame, a reading only
+gets into your statistics if it agrees with the last one. To see how models compare on *your* meter, try
+them side by side for a few days:
+
+1. Add a second Meter Vision entry for the same camera (for example named `Water meter qwen`), with the
+   other AI Task entity and **without** adding it to the Energy dashboard.
+2. Compare the two devices: *Last result* (how often each is `accepted`), *Confidence*, and *Last value
+   read* against the meter itself. The `ai_engine` attribute says which entity answered.
+3. Keep the better one as the main AI Task entity and, if you like, the other as the fallback. Then
+   delete the test entry.
+
+Every provider's answer goes through the same parser, which accepts the small differences between them
+(numbers as text, `"true"` instead of `true`, spaces in the digits). The test suite checks this with
+representative answer shapes; it does not call real providers, so how well each model *reads* your
+meter is something only the side-by-side comparison above can tell.
 
 ---
 

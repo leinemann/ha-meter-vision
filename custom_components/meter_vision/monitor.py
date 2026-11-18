@@ -348,6 +348,10 @@ class MeterMonitor:
                 outcome = Outcome.WRONG_DIGITS
             else:
                 assert result.value is not None
+                if self.dials and not result.dials_used:
+                    _LOGGER.warning(
+                        "%s: pointer dials not readable (%r), using the wheels only", self.entry.title, result.dials
+                    )
                 outcome = self.validator.check(result.value, now, self.max_increase, self.interval, result.tolerance)
         _LOGGER.debug(
             "%s: %s (read %s, value %s)", self.entry.title, outcome, result.digits if result else None, self.value

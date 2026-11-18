@@ -266,7 +266,7 @@ async def test_a_meter_with_a_pointer_dial(hass: HomeAssistant, freezer: FrozenD
             ferro("00140925", "7"),
             ferro("00140925", "9", rolling=True),  # wheel turning, dial before 0: still 5
             ferro("00140926", "1"),
-            ferro("00140925", "1", rolling=True),  # the model wrote the lower number: the dial says 6
+            ferro("00140925", "1", rolling=True),  # the lower number: within range of 140.9261, kept
             ferro("0014092X", "X"),  # last wheel unreadable: kept, not a failure
         ],
     )
@@ -313,3 +313,23 @@ async def test_rolling_state_survives_a_restart(hass: HomeAssistant, freezer: Fr
     await hass.async_block_till_done()
     last = entry.runtime_data.last_reading
     assert (last.value, last.tolerance, last.rolling, last.dials) == (140.9258, 0.0001, True, "8")
+
+
+# Representative answer shapes (not captured from live APIs): providers and small local
+# models differ in how they type the fields, and every shape must give the same reading.
+ANSWER_STYLES = {
+    "typed": {"digits": "00140927", "last_wheel_rolling": False, "confidence": 9, "dials": "3"},
+    "all text": {"digits": "0014 0927", "last_wheel_rolling": "false", "confidence": "8", "dials": "3"},
+    "loose local": {"digits": "140927", "last_wheel_rolling": "False", "confidence": 7.0, "dials": " 3 "},
+}
+
+
+@pytest.mark.parametrize("style", ANSWER_STYLES)
+async def test_every_answer_style_gives_the_same_reading(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, style: str
+) -> None:
+    FakeAI(hass, [ANSWER_STYLES[style]])
+    await _setup(hass, tmp_path, data=FERRO_DATA, options=FERRO_OPTIONS)
+    await _advance(hass, freezer, 1)
+    assert _state(hass, RESULT) == "accepted"
+    assert _state(hass, READING) == "140.9273"
