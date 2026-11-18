@@ -16,9 +16,11 @@ and moves back when it stops winning.
 Each reading is judged against the published value:
 
 - no more than the maximum increase below it, and no more than the maximum
-  increase per interval above it (counted since the last plausible reading,
-  capped at ``GROWTH_CAP_PERIODS``) → plausible: it joins the window and the
-  published value becomes the median of the window;
+  increase per interval above the newest plausible reading (counted since that
+  reading, capped at ``GROWTH_CAP_PERIODS``) → plausible: it joins the window
+  and the published value becomes the median of the window. The gate is measured
+  from the newest reading, not the median, because the median trails a running
+  meter: a meter growing at up to the maximum increase stays inside it;
 - a step down of the median by no more than the reading's tolerance (a last
   wheel flipping between two numbers) is ignored, so the reading doesn't flicker;
 - further below → ``decrease``, further above → ``implausible``; neither joins
@@ -28,16 +30,21 @@ The published value can step down when a misread had briefly won the majority:
 the reading sensor is a ``total`` sensor, so a correction is subtracted from the
 consumption instead of being counted as a meter reset.
 
-A real jump the gate cannot follow (the camera offline for a day while the pool
-was filled) is taken when ``WINDOW_SIZE`` readings in a row agree on it and it
-is no more than the meter could have done in that time (at least
-``MAX_JUMP_SPAN``). A misread that keeps winning that long is a broken camera:
-the problem alert has fired long before, and ``set`` corrects the value.
+Rejected readings on the same side of the gate that keep agreeing (never
+dropping by more than their tolerance) for ``RUN_SPAN``, at least
+``WINDOW_SIZE`` of them, replace the window. That is the way back after a camera
+outage, from a meter running faster than the maximum increase, and from a
+misread that did get in. Upwards it is never more than the meter could do in
+``MAX_JUMP_SPAN``. The field data's longest misread run was 15 minutes; a
+frozen camera, which would repeat itself for ever, is caught before it gets
+here (an identical frame is an error).
 
-Without a starting value (``set``), readings are collected until a majority of a
-full window agrees within ``AGREE_STEPS`` steps of the last digit. With a camera
-that misreads often this can lock onto a cluster of misreads, which is why the
-setup asks for the current reading.
+``set`` fills the window with the given value, so the first readings after it
+need a majority like every later one. Without any value (saved state lost and
+no setup reading), readings are collected until a majority of a full window
+agrees within ``AGREE_STEPS`` steps of the last digit, and the wait counts as a
+failure: with a camera that misreads often this can lock onto a cluster of
+misreads, which is why the setup asks for the current reading.
 """
 
 from __future__ import annotations
@@ -48,7 +55,7 @@ from enum import StrEnum
 import statistics
 from typing import Any
 
-from .const import AGREE_STEPS, GROWTH_CAP_PERIODS, MAX_JUMP_SPAN, WINDOW_SIZE
+from .const import AGREE_STEPS, GROWTH_CAP_PERIODS, MAX_JUMP_SPAN, RUN_SPAN, WINDOW_SIZE
 
 _EPSILON = 1e-9
 
@@ -57,7 +64,7 @@ class Outcome(StrEnum):
     """Result of the last reading, as shown by the last result sensor."""
 
     ACCEPTED = "accepted"  # plausible: joined the window
-    UNCONFIRMED = "unconfirmed"  # no value yet: waiting for enough readings to agree
+    UNCONFIRMED = "unconfirmed"  # no value (state lost): waiting for a majority; counts as a failure
     DECREASE = "decrease"
     UNREADABLE = "unreadable"
     WRONG_DIGITS = "wrong_digits"
@@ -69,6 +76,7 @@ class Outcome(StrEnum):
     def failed(self) -> bool:
         """Counts towards a problem."""
         return self in (
+            Outcome.UNCONFIRMED,
             Outcome.DECREASE,
             Outcome.IMPLAUSIBLE,
             Outcome.UNREADABLE,
@@ -112,40 +120,49 @@ class ReadingValidator:
         how far above it the meter may really be (one step of the last digit read).
         """
         band = AGREE_STEPS * tolerance if tolerance > 0 else max_increase / AGREE_STEPS
-        if self.value is None or self.value_at is None:
+        if self.value is None or self.value_at is None or not self.window:
             return self._start(_Point(value, now), band)
 
-        elapsed = now - self.value_at
-        capped = min(elapsed, interval * GROWTH_CAP_PERIODS)
+        # Growth is measured from the newest plausible reading, not from the median,
+        # which trails a running meter: a meter growing at up to the maximum increase
+        # per interval stays inside the gate however long it runs.
+        newest = self.window[-1]
+        periods = min(max((now - newest.at) / interval, 1.0), GROWTH_CAP_PERIODS) if interval.total_seconds() else 1
         low = self.value - max(max_increase, tolerance)
-        high = self.value + self.allowed(max_increase, capped, interval)
+        high = max(self.value, newest.value) + max_increase * periods
+        point = _Point(value, now)
         if low - _EPSILON <= value <= high + _EPSILON:
             self.pending = []
-            self._add(_Point(value, now), tolerance)
+            self._add(point, tolerance)
             return Outcome.ACCEPTED
-        if value < low:
-            self.pending = []
-            return Outcome.DECREASE
-        return self._jump(_Point(value, now), max_increase, interval, tolerance)
+        outcome = Outcome.DECREASE if value < low else Outcome.IMPLAUSIBLE
+        span = max(now - self.value_at, MAX_JUMP_SPAN)
+        if value - self.value > self.allowed(max_increase, span, interval) + _EPSILON:
+            self.pending = []  # more than the meter could do in a day: never taken
+            return outcome
+        return self._run(point, outcome, tolerance)
 
-    def _jump(self, point: _Point, max_increase: float, interval: timedelta, tolerance: float) -> Outcome:
-        """A reading above the gate: take it only after a whole window agrees on it."""
-        assert self.value is not None and self.value_at is not None
-        span = max(point.at - self.value_at, MAX_JUMP_SPAN)
-        if point.value - self.value > self.allowed(max_increase, span, interval) + _EPSILON:
-            self.pending = []
-            return Outcome.IMPLAUSIBLE
+    def _run(self, point: _Point, outcome: Outcome, tolerance: float) -> Outcome:
+        """Track rejected readings on one side of the gate; re-base on a long, steady run.
+
+        The camera has been offline while the pool filled, the meter ran faster than
+        the maximum increase, or a misread got published and every true reading is
+        now a decrease: readings that keep agreeing for ``RUN_SPAN`` (and at least a
+        full window of them) win. A misread repeated that long is a broken camera;
+        the problem alert has fired long before.
+        """
+        assert self.value is not None
+        side = point.value > self.value
         last = self.pending[-1] if self.pending else None
-        if last is not None and -tolerance - _EPSILON <= point.value - last.value <= (
-            self.allowed(max_increase, point.at - last.at, interval) + _EPSILON
-        ):
-            self.pending.append(point)
+        if last is not None and (last.value > self.value) == side and point.value >= last.value - tolerance - _EPSILON:
+            self.pending = [*self.pending, point]
         else:
             self.pending = [point]
-        if len(self.pending) < WINDOW_SIZE:
-            return Outcome.IMPLAUSIBLE
-        run, self.pending, self.window = self.pending, [], []
-        for p in run:
+        run = self.pending
+        if len(run) < WINDOW_SIZE or run[-1].at - run[0].at < RUN_SPAN:
+            return outcome
+        self.pending, self.window, self.value = [], [], None
+        for p in run[-WINDOW_SIZE:]:
             self._add(p)
         return Outcome.ACCEPTED
 
@@ -173,9 +190,14 @@ class ReadingValidator:
         self.value_at = point.at
 
     def set(self, value: float, now: datetime) -> None:
-        """Set the value by hand (meter replaced, first setup, correction): a fresh window."""
-        self.window, self.pending = [], []
-        self._add(_Point(value, now))
+        """Set the value by hand (meter replaced, first setup, correction).
+
+        The window is filled with it, so the first readings after it need a
+        majority to move the value, like every later one.
+        """
+        self.pending = []
+        self.window = [_Point(value, now)] * WINDOW_SIZE
+        self.value, self.value_at = value, now
 
     @property
     def pending_value(self) -> float | None:
@@ -193,21 +215,17 @@ class ReadingValidator:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ReadingValidator:
-        """Restore from ``as_dict``; anything malformed starts empty.
-
-        State saved by the first release has no window: its accepted value becomes a window of one.
-        """
+        """Restore from ``as_dict``; anything malformed starts empty."""
         validator = cls()
         if not isinstance(data, dict):
             return validator
         try:
             if data.get("value") is not None and data.get("value_at"):
+                value, at = float(data["value"]), datetime.fromisoformat(data["value_at"])
                 window = [_Point(float(v), datetime.fromisoformat(t)) for v, t in data.get("window") or []]
-                if not window:
-                    window = [_Point(float(data["value"]), datetime.fromisoformat(data["value_at"]))]
-                validator.window = window[-WINDOW_SIZE:]
-                validator.value = _median(validator.window)
-                validator.value_at = datetime.fromisoformat(data["value_at"])
+                # State saved by the first release has no window: fill one with its value.
+                validator.window = window[-WINDOW_SIZE:] or [_Point(value, at)] * WINDOW_SIZE
+                validator.value, validator.value_at = value, at  # the published value, hysteresis included
             validator.pending = [_Point(float(v), datetime.fromisoformat(t)) for v, t in data.get("pending") or []]
         except (TypeError, ValueError):
             return cls()

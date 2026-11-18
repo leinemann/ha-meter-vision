@@ -34,6 +34,7 @@ REASONS: Final[dict[str, dict[str, str]]] = {
         "unreadable": "digits not readable",
         "wrong_digits": "too many digits",
         "error": "camera or AI not responding",
+        "unconfirmed": "no agreed reading yet",
     },
     "it": {
         "decrease": "inferiore all'ultima lettura",
@@ -41,6 +42,7 @@ REASONS: Final[dict[str, dict[str, str]]] = {
         "unreadable": "cifre non leggibili",
         "wrong_digits": "troppe cifre",
         "error": "telecamera o AI non rispondono",
+        "unconfirmed": "nessuna lettura concorde finora",
     },
 }
 

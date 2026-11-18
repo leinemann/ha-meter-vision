@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import timedelta
+from itertools import count
 from typing import Any
 from unittest.mock import patch
 
@@ -63,16 +64,22 @@ class FakeAI:
 @pytest.fixture(autouse=True)
 def _fast():
     """No waits between retries, a fake camera frame."""
-    image = Image("image/jpeg", b"\xff\xd8 fake jpeg")
+    frames = (Image("image/jpeg", b"\xff\xd8 fake jpeg %d" % n) for n in count())  # a real camera never repeats
     with (
         patch("custom_components.meter_vision.monitor.RETRY_DELAY_S", 0),
-        patch("custom_components.meter_vision.monitor.camera.async_get_image", return_value=image) as grab,
+        patch(
+            "custom_components.meter_vision.monitor.camera.async_get_image", side_effect=lambda *a, **k: next(frames)
+        ) as grab,
     ):
         yield grab
 
 
 async def _setup(
-    hass: HomeAssistant, tmp_path, data: dict[str, Any] | None = None, options: dict[str, Any] | None = None
+    hass: HomeAssistant,
+    tmp_path,
+    data: dict[str, Any] | None = None,
+    options: dict[str, Any] | None = None,
+    entry: MockConfigEntry | None = None,
 ) -> MockConfigEntry:
     hass.config.media_dirs = {"local": str(tmp_path)}
     hass.config.language = "en"
@@ -81,7 +88,7 @@ async def _setup(
     for action in ("turn_on", "turn_off"):
         if not hass.services.has_service("light", action):
             async_mock_service(hass, "light", action)
-    entry = MockConfigEntry(domain=DOMAIN, title="Water meter", data=data or DATA, options=options or OPTIONS)
+    entry = entry or MockConfigEntry(domain=DOMAIN, title="Water meter", data=data or DATA, options=options or OPTIONS)
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -124,14 +131,16 @@ async def test_periodic_readings(hass: HomeAssistant, freezer: FrozenDateTimeFac
     assert "exactly 8 wheels" in ai.calls[0]["instructions"]
     assert (tmp_path / "meter_vision" / "water_meter.jpg").read_bytes().startswith(b"\xff\xd8")
     assert _state(hass, "sensor.water_meter_value_read") == "1250950.0"
-    assert _state(hass, READING) == "1250922.0"  # median of the start value and one reading: the lower
+    assert _state(hass, READING) == "1250922.0"  # one reading can't outvote the window of the setup reading
     assert _state(hass, RESULT) == "accepted"
     assert _state(hass, "sensor.water_meter_confidence") == "8"
     assert _state(hass, "image.water_meter_last_frame") != "unknown"
 
     await _advance(hass, freezer, 15)
     assert len(ai.calls) == 2
-    assert _state(hass, READING) == "1250950.0"  # median of 1250922, 1250950, 1251100
+    assert _state(hass, READING) == "1250922.0"
+    await _advance(hass, freezer, 15 * 2)  # three readings of 1251100: the majority
+    assert _state(hass, READING) == "1251100.0"
 
 
 async def test_misreads_never_reach_the_reading(hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path) -> None:
@@ -149,7 +158,7 @@ async def test_misreads_never_reach_the_reading(hass: HomeAssistant, freezer: Fr
     await _advance(hass, freezer, 15)
     assert _state(hass, RESULT) == "accepted"
     assert _state(hass, "sensor.water_meter_value_read") == "1250960.0"
-    await _advance(hass, freezer, 15)
+    await _advance(hass, freezer, 15 * 2)
     assert _state(hass, READING) == "1250960.0"
 
 
@@ -233,7 +242,7 @@ async def test_state_survives_a_restart(hass: HomeAssistant, freezer: FrozenDate
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data.validator.as_dict()["window"] == window
-    assert [v for v, _ in window] == [1250922, 1250990]
+    assert [v for v, _ in window] == [1250922] * 4 + [1250990]
     assert _state(hass, RESULT) == "accepted"
     assert entry.runtime_data.frame is not None
 
@@ -347,3 +356,33 @@ async def test_every_answer_style_gives_the_same_reading(
     await _advance(hass, freezer, 1)
     assert _state(hass, RESULT) == "accepted"
     assert _state(hass, "sensor.water_meter_value_read") == "140.9273"
+
+
+# ---------------------------------------------------------------- review regressions
+async def test_a_frozen_camera_is_an_error(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, _fast
+) -> None:
+    ai = FakeAI(hass, [answer("01250930")])
+    frozen = Image("image/jpeg", b"\xff\xd8 the same frame")
+    _fast.side_effect = lambda *args, **kwargs: frozen
+    await _setup(hass, tmp_path, options={**OPTIONS, "light_entity": None})
+    await _advance(hass, freezer, 1)
+    assert len(ai.calls) == 1  # the first frame is new
+    await _advance(hass, freezer, 15)
+    assert len(ai.calls) == 1  # the same bytes again: not sent to the AI
+    assert _state(hass, RESULT) == "error"
+    assert "same frame" in hass.states.get(RESULT).attributes["last_error"]
+
+
+async def test_unreadable_saved_state_falls_back_to_the_setup_reading(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_storage
+) -> None:
+    FakeAI(hass, [answer("01250930")])
+    entry = MockConfigEntry(domain=DOMAIN, title="Water meter", data=DATA, options=OPTIONS, entry_id="broken")
+    hass_storage[f"{DOMAIN}.broken"] = {
+        "version": 1,
+        "key": f"{DOMAIN}.broken",
+        "data": {"validator": {"value": "garbage", "value_at": "not a time"}},
+    }
+    await _setup(hass, tmp_path, entry=entry)
+    assert _state(hass, READING) == "1250922.0"

@@ -2,7 +2,9 @@
 
 from datetime import UTC, datetime, timedelta
 
-from custom_components.meter_vision.const import WINDOW_SIZE
+import pytest
+
+from custom_components.meter_vision.const import RUN_SPAN, WINDOW_SIZE
 from custom_components.meter_vision.validator import Outcome, ReadingValidator
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
@@ -34,10 +36,13 @@ def test_the_reading_is_the_median_of_the_plausible_readings() -> None:
     assert len(validator.window) == WINDOW_SIZE
 
 
-def test_the_median_never_runs_ahead_of_a_short_window() -> None:
-    validator = _validator(1000)
-    _feed(validator, [1010])
-    assert validator.value == 1000  # median_low of two: the lower one
+def test_after_setup_a_single_misread_is_outvoted() -> None:
+    # The setup reading fills the window: the first readings need a majority too.
+    validator = _validator(100.0)
+    assert _feed(validator, [99.75], max_increase=0.3, tolerance=0.0001) == [Outcome.ACCEPTED]
+    assert validator.value == 100.0
+    _feed(validator, [100.3, 100.3], start=2, max_increase=0.3, tolerance=0.0001)
+    assert validator.value == 100.0
 
 
 def test_a_large_decrease_is_rejected() -> None:
@@ -68,12 +73,13 @@ def test_a_repeated_misread_must_win_the_majority() -> None:
     assert validator.value < 141
 
 
-def test_growth_beyond_the_gate_is_implausible_until_a_whole_window_agrees() -> None:
+def test_a_jump_past_the_gate_is_taken_after_two_hours_of_agreement() -> None:
+    # The camera was offline while the pool filled: 1.9 m³ more when it comes back.
     validator = _validator(1000)
-    jump = [1900 + i for i in range(WINDOW_SIZE)]  # 900 L in one interval
-    outcomes = _feed(validator, jump)
-    assert outcomes == [Outcome.IMPLAUSIBLE] * (WINDOW_SIZE - 1) + [Outcome.ACCEPTED]
-    assert validator.value == 1902
+    reads = 1 + int(RUN_SPAN / INTERVAL)  # first to last spans RUN_SPAN
+    outcomes = _feed(validator, [2900 + i for i in range(reads)])
+    assert outcomes == [Outcome.IMPLAUSIBLE] * (reads - 1) + [Outcome.ACCEPTED]
+    assert 2900 < validator.value <= 2900 + reads
 
 
 def test_a_plausible_reading_breaks_a_run_of_misreads() -> None:
@@ -130,18 +136,66 @@ def test_round_trip() -> None:
     assert ReadingValidator.from_dict(None).value is None
 
 
-def test_state_saved_by_0_1_0_is_restored() -> None:
+def test_state_saved_by_the_first_release_is_restored() -> None:
     old = {"value": 140.925, "value_at": T0.isoformat(), "pending": []}
     validator = ReadingValidator.from_dict(old)
     assert validator.value == 140.925
-    assert [p.value for p in validator.window] == [140.925]
+    assert [p.value for p in validator.window] == [140.925] * WINDOW_SIZE
+
+
+def test_the_published_value_survives_a_restart_with_its_hysteresis() -> None:
+    validator = _validator(140.926)
+    _feed(validator, [140.925] * 2 + [140.926], max_increase=0.3, tolerance=0.001)
+    held = validator.value
+    assert ReadingValidator.from_dict(validator.as_dict()).value == held
 
 
 def test_failed_outcomes() -> None:
     assert {o for o in Outcome if o.failed} == {
+        Outcome.UNCONFIRMED,
         Outcome.DECREASE,
         Outcome.IMPLAUSIBLE,
         Outcome.UNREADABLE,
         Outcome.WRONG_DIGITS,
         Outcome.ERROR,
     }
+
+
+# ---------------------------------------------------------------- review regressions
+def test_a_misread_repeated_for_less_than_two_hours_is_never_published() -> None:
+    # A persistent reflection: the same +1 m³ misread, 8 times in a row (1 h 45 min).
+    validator = _validator(140.915)
+    outcomes = _feed(validator, [141.9] * 8 + [140.916] * 10, max_increase=0.3, tolerance=0.0001)
+    assert Outcome.ACCEPTED not in outcomes[:8]
+    assert outcomes[8:] == [Outcome.ACCEPTED] * 10
+    assert validator.value == 140.916
+
+
+def test_a_published_misread_is_undone_after_two_hours_of_true_readings() -> None:
+    # A wrong correction by hand (or a misread that held for two hours): the true
+    # readings, all "decreases", take the reading back once they agree for RUN_SPAN.
+    validator = _validator(141.9)
+    reads = 1 + int(RUN_SPAN / INTERVAL)
+    outcomes = _feed(validator, [140.916 + 0.0001 * i for i in range(reads)], max_increase=0.3, tolerance=0.0001)
+    assert outcomes[:-1] == [Outcome.DECREASE] * (reads - 1)
+    assert outcomes[-1] is Outcome.ACCEPTED
+    assert 140.916 <= validator.value < 140.92
+
+
+@pytest.mark.parametrize("rate", [0.05, 0.1, 0.15, 0.2, 0.3])
+def test_a_meter_running_at_up_to_the_maximum_increase_is_followed(rate: float) -> None:
+    validator = _validator(100.0)
+    true = [100.0 + rate * n for n in range(1, 41)]  # ten hours
+    outcomes = _feed(validator, true, max_increase=0.3, tolerance=0.001)
+    assert outcomes == [Outcome.ACCEPTED] * len(true)
+    # The median trails by about half the window.
+    assert true[-1] - validator.value == pytest.approx(rate * (WINDOW_SIZE // 2), abs=1e-6)
+
+
+def test_a_meter_running_twice_the_maximum_increase_is_never_stuck() -> None:
+    validator = _validator(100.0)
+    true = [100.0 + 0.6 * n for n in range(1, 401)]
+    _feed(validator, true, max_increase=0.3, tolerance=0.001)
+    # It lags while it runs too fast (raise the maximum increase), but it keeps up in steps.
+    lag_limit = 0.6 * (RUN_SPAN / INTERVAL + WINDOW_SIZE + 1)
+    assert true[-1] - validator.value <= lag_limit

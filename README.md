@@ -39,7 +39,7 @@ two numbers can turn `140.925 m³` into `1139.93` or `11140.93`, and once such a
 - **A strict plausibility check sits between the model and your statistics.** A counter never goes
   back and only grows so fast. Large jumps wait for confirmation, and impossible ones are never accepted.
 - **A median, not a confirmation.** Replayed on two real days of a glitching camera, the usual "accept
-  a jump once the next reading confirms it" ended 1 m³ too high; the median stayed within 17 L.
+  a jump once the next reading confirms it" ended 1 m³ too high; the median never left the true range.
 - **The last wheel is allowed to move.** It turns all the time, so it is often caught between two
   numbers. Meter Vision treats that as a normal reading with one step of tolerance instead of discarding
   the frame or flagging a decrease. An optional **pointer dial** (for example the `x0.0001` dial on many
@@ -187,25 +187,29 @@ A camera that misreads tends to repeat the same misread, so "accept a jump once 
 it" accepts it. Replayed on two real days of a glitching water-meter camera, that rule ended 1 m³ too high.
 Meter Vision publishes the **median of the last 5 plausible readings** instead: a misread only counts while
 it holds the majority, and stops counting when it loses it. On the same two days the error stayed at
-0–17 L. See [prior art](docs/prior-art.md) for the evidence, and `tests/test_field_corpus.py` for the replay.
+0 L, at 5- and at 15-minute rounds. See [prior art](docs/prior-art.md) for the evidence, and `tests/test_field_corpus.py` for the replay.
 
 | New reading compared with the published reading | Result |
 | --- | --- |
 | No more than the maximum increase below it, and no more than the allowed growth above it | `accepted`: joins the window; the reading becomes the median of the window |
 | Further below | `decrease`: rejected |
-| Further above | `implausible`: rejected, unless 5 readings in a row agree on the new value and it is no more than a day at the maximum increase |
+| Further above | `implausible`: rejected |
+| Rejected on the same side for **2 hours** (at least 5 readings), steadily agreeing | `accepted`: the reading moves to them. This is how it catches up after a camera outage, follows a meter running faster than the maximum increase, and undoes a misread that did get in. Never more than a day at the maximum increase upwards |
+| No value at all (saved state lost) | `unconfirmed` until 5 readings agree; counts as a failure |
 | Any wheel but the last marked unreadable, confidence below 4, or too many digits | `unreadable` / `wrong_digits`: the frame is retried once, then rejected |
 
-- The allowed growth is the *maximum increase per reading* for each interval since the last plausible
-  reading, at least one and at most three. If your meter can run faster than the default (a pool fill, a
+- The allowed growth is the *maximum increase per reading* for each interval since the newest plausible
+  reading, at least one and at most three, measured from that reading (not from the median, which trails). If your meter can run faster than the default (a pool fill, a
   garden hose), raise it from the device page.
 - The median trails a steadily running meter by about two readings. Totals are unaffected.
 - The median can step back down when a misread had briefly won. That's why the reading is a `total`
   sensor, not `total_increasing`: the Energy dashboard subtracts the correction instead of counting a
   meter reset. A step down of one last-digit step (a wheel flipping between two numbers) is ignored so
   the reading doesn't flicker.
-- The current reading is required at setup. Starting from nothing, a camera that misreads often can lock
-  onto its own misreads; without a stored value (lost state) a full window must agree first.
+- The current reading is required at setup and fills the window, so the first readings need a majority
+  too. Starting from nothing, a camera that misreads often can lock onto its own misreads.
+- A frame byte-for-byte identical to the last one is an `error` and is not sent to the AI: a frozen camera
+  would otherwise repeat the same answer for ever.
 
 ### The rolling last wheel and the pointer dial
 

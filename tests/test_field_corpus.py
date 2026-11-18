@@ -64,8 +64,8 @@ def test_every_5_minutes_the_reading_never_leaves_the_true_range() -> None:
 
 
 @pytest.mark.parametrize("phase", [0, 1, 2])
-def test_every_15_minutes_the_error_stays_within_a_few_litres(phase: int) -> None:
+def test_every_15_minutes_the_reading_never_leaves_the_true_range(phase: int) -> None:
     # Every third round, each of the three possible phases: what a 15-minute
     # interval would have seen of the same two days.
     worst, _ = _replay(_rounds()[phase::3], timedelta(minutes=15), MAX_INCREASE_15_MIN)
-    assert worst <= 20
+    assert worst == 0

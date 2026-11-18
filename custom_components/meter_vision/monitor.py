@@ -177,14 +177,15 @@ class MeterMonitor:
     # ------------------------------------------------------------ lifecycle
     async def async_load(self) -> None:
         """Restore the saved state and the last frame."""
-        data = await self._store.async_load()
-        if data is None:
-            initial = self.entry.data.get(CONF_INITIAL_READING)
-            if initial is not None:
-                self.validator.set(round(float(initial), self.precision), dt_util.utcnow())
-            data = {}
-        else:
-            self.validator = ReadingValidator.from_dict(data.get("validator"))
+        data = await self._store.async_load() or {}
+        self.validator = ReadingValidator.from_dict(data.get("validator"))
+        initial = self.entry.data.get(CONF_INITIAL_READING)
+        if self.validator.value is None and initial is not None:
+            # First start, or stored state that could not be read: start from the
+            # reading given at setup rather than from whatever the camera says.
+            if data:
+                _LOGGER.warning("%s: saved state unreadable, starting again from the setup reading", self.entry.title)
+            self.validator.set(round(float(initial), self.precision), dt_util.utcnow())
         if isinstance(data.get("max_increase"), int | float):
             self.max_increase = float(data["max_increase"])
         self.auto_read = bool(data.get("auto_read", True))
@@ -387,6 +388,10 @@ class MeterMonitor:
         path = self._frame_path
         if path is None:
             raise HomeAssistantError("no local media folder configured")
+        if self.frame is not None and image.content == self.frame:
+            # A frozen camera (a cached snapshot, a hung stream) would repeat the same
+            # answer for ever, and a long enough run of it replaces the reading.
+            raise HomeAssistantError("the camera returned the same frame as last time")
         await self.hass.async_add_executor_job(_write_frame, path, image.content)
         self.frame, self.frame_at = image.content, dt_util.utcnow()
         self._notify_entities()

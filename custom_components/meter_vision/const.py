@@ -87,9 +87,10 @@ ROLLOVER_DIAL_MAX: Final = 2
 # ------------------------------------------------------------ plausibility
 # The published reading is the median of the last WINDOW_SIZE plausible readings:
 # a misread only counts if it wins the majority. Chosen on two real days of a
-# glitching camera (tests/fixtures): seeded with the current reading, 5 and 7
-# both held the error to 17 L or less at 15-minute rounds. 5 because the median
-# trails the meter by about half the window (two rounds), and totals are the same.
+# glitching camera (tests/fixtures), where 5 keeps the error at 0 L at 5- and
+# 15-minute rounds. 3 also passes with the final rules, but outvotes only one
+# misread per window, and the fixture has runs of three; not more than 5,
+# because the median trails a running meter by about half the window.
 WINDOW_SIZE: Final = 5
 # Growth allowed above the reading: the maximum increase per interval, counted
 # since the last plausible reading but for at most this many intervals, so a long
@@ -99,6 +100,10 @@ WINDOW_SIZE: Final = 5
 GROWTH_CAP_PERIODS: Final = 3
 # Readings agree when they are within this many steps of the last digit read.
 AGREE_STEPS: Final = 10
+# Readings rejected on the same side of the gate that keep agreeing for this long
+# (and at least WINDOW_SIZE of them) replace the reading: the way back from an
+# outage, a meter running faster than the maximum increase, or a published misread.
+RUN_SPAN: Final = timedelta(hours=2)
 # A jump larger than the maximum increase sustained for this long (or since the
 # last plausible reading, if longer) is never taken, however many readings agree.
 MAX_JUMP_SPAN: Final = timedelta(days=1)

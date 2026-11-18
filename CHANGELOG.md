@@ -13,10 +13,15 @@ All notable changes to this project are documented here. The format follows
 - **The reading is now the median of the last 5 plausible readings**, not the last reading confirmed by
   the next one. A camera repeats its misreads, so a repeat confirmed them: replayed on two real days of a
   glitching water-meter camera, the old rule ended 1,031 L too high, with 80 true readings rejected as
-  decreases. The median keeps the error at 0 L (5-minute rounds) to 17 L (15-minute rounds). The replay
+  decreases. With the median the reading never leaves the true range (0 L error at 5- and 15-minute rounds). The replay
   is a test now (`tests/test_field_corpus.py`).
-- A reading above the growth gate (at most three intervals of the maximum increase) is `implausible`
-  unless 5 readings in a row agree on it. `unconfirmed` now only means "no value yet".
+- The growth gate is measured from the newest plausible reading and capped at three intervals of the
+  maximum increase. Readings rejected on the same side for two hours (at least 5, steadily agreeing) move
+  the reading: catching up after an outage, following a meter faster than the maximum increase, undoing
+  a misread that got in. `unconfirmed` only means "no value at all" and now counts as a failure.
+- The setup reading fills the window, so a single misread right after setup is outvoted too.
+- A frame identical to the previous one is an error and isn't sent to the AI (frozen camera).
+- Stored state that can't be read falls back to the setup reading instead of starting from nothing.
 - The reading sensor is `total` instead of `total_increasing`: the median can step back when a misread
   had briefly won, and that correction is subtracted instead of counted as a meter reset. Long-term
   statistics of an existing sensor carry on; Home Assistant may ask to confirm the state class change.
