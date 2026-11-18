@@ -39,19 +39,25 @@ class RawFrameImage(MeterReaderEntity, ImageEntity):
         """Initialise both parents."""
         MeterReaderEntity.__init__(self, monitor, description, "image")
         ImageEntity.__init__(self, hass)
-        self._shown: datetime | None = None
+        self._shown: tuple[datetime | None, ...] | None = None
 
     @property
     def image_last_updated(self) -> datetime | None:  # type: ignore[override]
         """Time of the frame: it is also the state."""
         return self.monitor.frame_at
 
+    @property
+    def _version(self) -> tuple[datetime | None, ...]:
+        """Changes whenever the bytes served change."""
+        return (self.monitor.frame_at,)
+
     @callback
     def _on_update(self) -> None:
         """Rotate the access token when the image changes, so browsers fetch the new one."""
-        if self.image_last_updated != self._shown:
-            self._shown = self.image_last_updated
+        if self._version != self._shown:
+            self._shown = self._version
             self.async_update_token()
+            self._written = None  # the picture URL changed: write it even if the state didn't
         super()._on_update()
 
     async def async_image(self) -> bytes | None:
@@ -70,6 +76,11 @@ class LastFrameImage(RawFrameImage):
     def image_last_updated(self) -> datetime | None:  # type: ignore[override]
         """Time it was drawn, or of the frame when shown as it is."""
         return self.monitor.annotated_at or self.monitor.frame_at
+
+    @property
+    def _version(self) -> tuple[datetime | None, ...]:
+        """A new frame, then its drawing a moment later: both are a new image."""
+        return (self.monitor.frame_at, self.monitor.annotated_at)
 
     async def async_image(self) -> bytes | None:
         """The annotated frame, else the clean one."""

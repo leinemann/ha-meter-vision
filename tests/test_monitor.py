@@ -418,10 +418,18 @@ LAST, RAW = "image.water_meter_last_frame", "image.water_meter_raw_frame"
 async def test_the_dashboard_frame_shows_what_was_read(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_client
 ) -> None:
-    FakeAI(hass, [ferro("00140925", "3")])
+    during: list[str] = []
+
+    def answer_and_look(_call: ServiceCall) -> dict[str, Any]:
+        during.append(hass.states.get(LAST).attributes["entity_picture"])  # frame taken, not drawn yet
+        return ferro("00140925", "3")
+
+    FakeAI(hass, [answer_and_look])
     entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
     await _advance(hass, freezer, 1)
     client = await hass_client()
+    # A browser that loaded the frame during the reading is sent to the drawing after it.
+    assert hass.states.get(LAST).attributes["entity_picture"] != during[0]
 
     sent = (tmp_path / "meter_vision" / "water_meter.jpg").read_bytes()
     raw, shown = await _picture(hass, client, RAW), await _picture(hass, client, LAST)
@@ -449,7 +457,7 @@ async def test_a_new_region_redraws_the_last_frame_without_reading_again(
     await hass.async_block_till_done()
     after = await _picture(hass, client, LAST)
     assert len(ai.calls) == 1
-    assert after != before  # same frame and reading, now with the boxes
+    assert after not in (before, await _picture(hass, client, RAW))  # same frame and reading, now with the boxes
     assert entry.runtime_data.annotation.digits == "00140925"
 
 
@@ -480,14 +488,20 @@ async def test_a_failed_ai_call_is_drawn_as_an_error_on_the_new_frame(
 
 
 @pytest.mark.usefixtures("real_frames")
-async def test_an_offline_camera_leaves_the_last_frame_alone(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path
+@pytest.mark.parametrize("failure", ["offline", "frozen", "timeout"])
+async def test_a_camera_failure_leaves_the_last_frame_alone(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, _fast, failure: str
 ) -> None:
     FakeAI(hass, [ferro("00140925", "3")])
     entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
     await _advance(hass, freezer, 1)
     shown = entry.runtime_data.annotated
-    hass.states.async_set("camera.meter", "unavailable")
+    if failure == "offline":
+        hass.states.async_set("camera.meter", "unavailable")
+    elif failure == "frozen":
+        _fast.side_effect = lambda *a, **k: Image("image/jpeg", entry.runtime_data.frame)
+    else:
+        _fast.side_effect = HomeAssistantError("snapshot timed out")
     await _advance(hass, freezer, 15)
     assert _state(hass, RESULT) == "error"
     assert entry.runtime_data.annotated == shown  # the old frame isn't relabelled with a newer outcome
