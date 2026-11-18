@@ -228,8 +228,10 @@ wrongly set rolling flag must not push the reading above the meter.
 - **The card is not in the card picker.** Reload the browser page once after installing or updating.
 - **Readings are `implausible`.** The meter runs faster than the maximum increase per reading, or the AI
   keeps reading a different number. Check the last frame and raise the maximum increase.
-- **Readings are `decrease`.** Usually a misread wheel. If the accepted reading is really too high, set the
-  correct value with `meter_vision.set_reading`.
+- **Readings are `decrease`.** Usually a misread wheel. If the published reading is really too high (a
+  misread held for two hours and moved it up, and the camera hasn't given two clean hours since, or more
+  than a day has passed), set the correct value with `meter_vision.set_reading`. The problem alert tells
+  you when this happens.
 - **Readings are `error`.** See the `last_error` attribute of the last result sensor. The AI Task entity
   must support attachments and structured output, and the model must take images.
 - **The dial is never read.** `dials_read` on the last result sensor shows what the model returned, and

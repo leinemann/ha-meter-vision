@@ -188,7 +188,12 @@ class ReadingValidator:
             or target < origin.value - max(max_increase, tolerance) - _EPSILON
         ):
             return outcome
-        self.rebased_from = _Point(self.value, point.at) if up else None
+        if not up:
+            self.rebased_from = None
+        elif origin is None or point.at - origin.at > MAX_JUMP_SPAN or self.value < origin.value:
+            # A second upward run within the day keeps the first origin: otherwise
+            # two misread phases in a row would leave the truth out of reach.
+            self.rebased_from = _Point(self.value, point.at)
         self.pending, self.window, self.value = [], [], None
         for p in run[-WINDOW_SIZE:]:
             self._add(p)

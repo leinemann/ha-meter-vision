@@ -86,6 +86,19 @@ What it lacked showed up on the field data:
 - **A crop / region picker in Home Assistant** (send only the counter to the model: fewer tokens, less to be
   confused by) is proposed, not built. It is the one piece of UI that would earn its place.
 
+## Known limits of the check
+
+- A chain of misreads that climbs by no more than the maximum increase per interval and then holds the
+  majority looks exactly like a meter in use. The maximum increase is the only defence: set it near the
+  meter's real peak.
+- A misread repeated for two hours moves the reading up. True readings take it back only if they then
+  agree for two hours without interruption, within a day. A camera that keeps glitching (like the one in
+  the field data) never gives that, and after a day the way back is closed: `set_reading`, prompted by the
+  problem alert, is the fix. Getting into that state needs two hours of one repeated wrong value, which
+  the field data never shows.
+- A downward run can land anywhere from the start of the last upward move upwards, so its error is bounded
+  by the size of that move.
+
 ## What the field data does not tell us
 
 The readings in the fixture came from AI-on-the-Edge's neural networks, not from a vision model. The corpus

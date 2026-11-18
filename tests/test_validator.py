@@ -240,3 +240,14 @@ def test_a_meter_running_twice_the_maximum_increase_is_never_stuck() -> None:
     # It lags while it runs too fast (raise the maximum increase), but it keeps up in steps.
     lag_limit = 0.6 * (RUN_SPAN / INTERVAL + WINDOW_SIZE + 1)
     assert true[-1] - validator.value <= lag_limit
+
+
+def test_two_upward_runs_in_a_row_can_still_be_undone() -> None:
+    validator = _validator(140.915)
+    n = _run_length()
+    _feed(validator, [141.9] * n, max_increase=0.3, tolerance=0.0001)
+    _feed(validator, [142.9] * n, start=n + 1, max_increase=0.3, tolerance=0.0001)
+    assert validator.value == 142.9
+    assert validator.rebased_from.value == 140.915  # the first origin, not 141.9
+    _feed(validator, [140.916] * n, start=2 * n + 1, max_increase=0.3, tolerance=0.0001)
+    assert validator.value == 140.916
