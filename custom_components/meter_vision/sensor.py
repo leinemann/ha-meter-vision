@@ -70,7 +70,7 @@ class MeterSensorDescription(SensorEntityDescription):
 SENSORS: tuple[MeterSensorDescription, ...] = (
     MeterSensorDescription(
         key="reading",
-        state_class=SensorStateClass.TOTAL_INCREASING,
+        state_class=SensorStateClass.TOTAL,
         with_unit=True,
         value_fn=lambda m: m.value,
         attributes_fn=_reading_attributes,

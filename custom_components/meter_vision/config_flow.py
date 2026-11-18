@@ -146,7 +146,9 @@ class MeterReaderConfigFlow(ConfigFlow, domain=DOMAIN):
                     selector.SelectSelectorConfig(options=units, mode=selector.SelectSelectorMode.DROPDOWN)
                 ),
                 **_sources(current, fallback=False),
-                vol.Optional(CONF_INITIAL_READING, description=_suggested(current, CONF_INITIAL_READING)): (
+                # Required: starting from a known value is what keeps a camera that
+                # misreads often from locking onto its misreads (see validator.py).
+                vol.Required(CONF_INITIAL_READING, description=_suggested(current, CONF_INITIAL_READING)): (
                     selector.NumberSelector(
                         selector.NumberSelectorConfig(min=0, step="any", mode=selector.NumberSelectorMode.BOX)
                     )

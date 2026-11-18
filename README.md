@@ -32,12 +32,14 @@ cloud model behind it.
 
 Classic on-device OCR (AI-on-the-Edge) works well until it doesn't. A reflection or a wheel caught between
 two numbers can turn `140.925 m³` into `1139.93` or `11140.93`, and once such a value is in a
-`total_increasing` sensor the statistics are wrong for good. Meter Vision does three things differently:
+`total_increasing` sensor the statistics are wrong for good. Meter Vision does four things differently:
 
 - **A large vision model reads the frame.** It sees the whole meter the way a person does, not a set of
   fixed digit boxes, and says when it is unsure.
 - **A strict plausibility check sits between the model and your statistics.** A counter never goes
   back and only grows so fast. Large jumps wait for confirmation, and impossible ones are never accepted.
+- **A median, not a confirmation.** Replayed on two real days of a glitching camera, the usual "accept
+  a jump once the next reading confirms it" ended 1 m³ too high; the median never left the true range.
 - **The last wheel is allowed to move.** It turns all the time, so it is often caught between two
   numbers. Meter Vision treats that as a normal reading with one step of tolerance instead of discarding
   the frame or flagging a decrease. An optional **pointer dial** (for example the `x0.0001` dial on many
@@ -56,7 +58,7 @@ timer → (light on, warm-up) → frame → (light off) → AI Task: "copy the d
 - **Checks.** Unreadable wheels, low confidence or too many digits mean the frame is discarded and retried
   once. Only an unreadable *last* wheel is still used, as a lower bound. Then the value must make sense
   (see [Plausibility rules](#plausibility-rules)).
-- **Energy dashboard.** The reading is a `total_increasing` sensor with the device class (water, gas or
+- **Energy dashboard.** The reading is a `total` sensor with the device class (water, gas or
   energy) and unit of the meter.
 - **Alerts.** After three failed readings in a row the *problem* sensor turns on and you get a
   notification. It clears by itself with the next good reading.
@@ -98,7 +100,7 @@ restart.
 | Digits of the counter | How many wheels the AI must read, leading zeros and red decimal wheels included, pointer dials not. `0` = don't check. Recommended. |
 | Decimal digits | How many of the last wheels are after the decimal point (often red). |
 | Pointer dials | Small round dials with a pointer after the decimal wheels (`x0.0001`, `x0.001`, …), each one more decimal. `0` = none. |
-| Current reading | Optional. The value on the meter now: the first reading is then accepted at once. Without it, two consistent readings are needed. |
+| Current reading | The value on the meter now. Required: it is where the median starts. |
 
 Examples for a water meter with 5 black and 3 red wheels showing `00140925` and a `x0.0001` dial
 pointing at 7:
@@ -152,7 +154,7 @@ language of Home Assistant (English and Italian).
 
 | Entity | Description |
 | --- | --- |
-| `sensor.water_meter_reading` | The accepted reading: `total_increasing`, device class and unit of the meter. Attributes: `updated_at`, `pending_value` (a larger reading waiting for confirmation), `meter_type`, `digits`, `decimal_places`, `pointer_dials` and the source entities. |
+| `sensor.water_meter_reading` | The published reading (median of the plausible readings): `total`, device class and unit of the meter. Attributes: `updated_at`, `pending_value` (the last of a run of rejected readings), `meter_type`, `digits`, `decimal_places`, `pointer_dials` and the source entities. |
 | `sensor.water_meter_last_result` | `accepted`, `unconfirmed`, `decrease`, `implausible`, `unreadable`, `wrong_digits`, `error`, `corrected`. Attributes: `digits_read`, `dials_read`, `last_wheel_rolling`, `consecutive_failures`, `ai_engine`, `last_error`. |
 | `sensor.water_meter_confidence` | Confidence 0–10 of the last answer. |
 | `sensor.water_meter_last_read` | Time of the last reading attempt. |
@@ -181,21 +183,36 @@ data:
 
 ## Plausibility rules
 
-Each frame gives a range: the value read, and how far above it the meter may really be (one step of the
-last wheel or dial read, ten steps when only the last wheel was unreadable).
+A camera that misreads tends to repeat the same misread, so "accept a jump once the next reading confirms
+it" accepts it. Replayed on two real days of a glitching water-meter camera, that rule ended 1 m³ too high.
+Meter Vision publishes the **median of the last 5 plausible readings** instead: a misread only counts while
+it holds the majority, and stops counting when it loses it. On the same two days the error stayed at
+0 L, at 5- and at 15-minute rounds. See [prior art](docs/prior-art.md) for the evidence, and `tests/test_field_corpus.py` for the replay.
 
-| New reading compared with the accepted value | Result |
+| New reading compared with the published reading | Result |
 | --- | --- |
-| Equal or higher, up to the allowed increase | `accepted` |
-| Lower, but within its own range (the last wheel between two numbers) | `accepted`: the accepted value is kept, never lowered |
-| Lower by more than that | `decrease`: rejected |
-| Higher than the allowed increase | `unconfirmed`: kept aside, accepted when the next reading is consistent with it |
-| Higher than a whole day at the maximum increase (or than the time since the last accepted value at that rate, if longer) | `implausible`: rejected however many readings agree. Fix the value with `meter_vision.set_reading` if it is real |
+| No more than the maximum increase below it, and no more than the allowed growth above it | `accepted`: joins the window; the reading becomes the median of the window |
+| Further below | `decrease`: rejected |
+| Further above | `implausible`: rejected |
+| Rejected **above** for 2 hours (at least 5 readings), steadily agreeing | `accepted`: the reading moves up to them. This is how it catches up after a camera outage or follows a meter running faster than the maximum increase. Never more than a day at the maximum increase |
+| Rejected **below** for 2 hours, steadily agreeing | `accepted` only to undo such an upward move within a day, and never below where it started. Any other lasting decrease (a replaced meter, a dropped digit repeated for hours) stays rejected and needs `meter_vision.set_reading` |
+| No value at all (saved state lost) | `unconfirmed` until 5 readings agree; counts as a failure |
 | Any wheel but the last marked unreadable, confidence below 4, or too many digits | `unreadable` / `wrong_digits`: the frame is retried once, then rejected |
 
-The allowed increase is the *maximum increase per reading* multiplied by the number of intervals since
-the last accepted value (at least one). If your meter can run faster than the default (a pool fill, a
-garden hose), raise it from the device page.
+- The allowed growth is the *maximum increase per reading* for each interval since the newest plausible
+  reading, at least one and at most three, measured from that reading (not from the median, which trails).
+- The maximum increase is also the limit of what the check can tell apart: misreads that climb by no more
+  than it each interval look exactly like real use. Set it near your meter's real peak, not far above. If your meter can run faster than the default (a pool fill, a
+  garden hose), raise it from the device page.
+- The median trails a steadily running meter by about two readings. Totals are unaffected.
+- The median can step back down when a misread had briefly won. That's why the reading is a `total`
+  sensor, not `total_increasing`: the Energy dashboard subtracts the correction instead of counting a
+  meter reset. A step down of one last-digit step (a wheel flipping between two numbers) is ignored so
+  the reading doesn't flicker.
+- The current reading is required at setup and fills the window, so the first readings need a majority
+  too. Starting from nothing, a camera that misreads often can lock onto its own misreads.
+- A frame byte-for-byte identical to the last one is an `error` and is not sent to the AI: a frozen camera
+  would otherwise repeat the same answer for ever.
 
 ### The rolling last wheel and the pointer dial
 
@@ -209,10 +226,12 @@ wrongly set rolling flag must not push the reading above the meter.
 ## Troubleshooting
 
 - **The card is not in the card picker.** Reload the browser page once after installing or updating.
-- **Readings stay `unconfirmed`.** The meter runs faster than the maximum increase per reading, or the AI
+- **Readings are `implausible`.** The meter runs faster than the maximum increase per reading, or the AI
   keeps reading a different number. Check the last frame and raise the maximum increase.
-- **Readings are `decrease`.** Usually a misread wheel. If the accepted reading is really too high, set the
-  correct value with `meter_vision.set_reading`.
+- **Readings are `decrease`.** Usually a misread wheel. If the published reading is really too high (a
+  misread held for two hours and moved it up, and the camera hasn't given two clean hours since, or more
+  than a day has passed), set the correct value with `meter_vision.set_reading`. The problem alert tells
+  you when this happens.
 - **Readings are `error`.** See the `last_error` attribute of the last result sensor. The AI Task entity
   must support attachments and structured output, and the model must take images.
 - **The dial is never read.** `dials_read` on the last result sensor shows what the model returned, and
@@ -235,8 +254,9 @@ checks pass. See [`CLAUDE.md`](CLAUDE.md) for the layout of the code.
 Meter Vision is a fork of [**ha-ai-meter-reader**](https://github.com/artech-lab/ha-ai-meter-reader) by
 [artech-lab](https://github.com/artech-lab), version 1.0.1. Its design and most of its code come from
 there: the AI Task reading, the plausibility validator, the entities, the alerts and the dashboard card.
-Thank you. Meter Vision renamed it (domain `meter_vision`) so both can be installed side by side, and
-added the rolling last wheel, pointer dials and the setup guide. See [`NOTICE.md`](NOTICE.md) for what
+Thank you. Meter Vision renamed it (domain `meter_vision`) so both can be installed side by side,
+replaced its validator with the median, and added the rolling last wheel, pointer dials and the setup
+guide. [`docs/prior-art.md`](docs/prior-art.md) says why. See [`NOTICE.md`](NOTICE.md) for what
 was changed.
 
 Copyright © 2026 The ha-ai-meter-reader contributors and the ha-meter-vision contributors. Released
