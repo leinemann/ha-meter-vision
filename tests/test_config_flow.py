@@ -76,3 +76,42 @@ async def test_options_flow(hass: HomeAssistant) -> None:
     assert monitor.interval.total_seconds() == 1800
     assert monitor.light_entity is None
     assert monitor.config["meter_notes"] == ""
+
+
+async def test_options_flow_regions(hass: HomeAssistant) -> None:
+    data = {**METER, "meter_type": "water", "digits": 8, "decimal_places": 3, "pointer_dials": 1}
+    entry = MockConfigEntry(domain=DOMAIN, title="Water meter", data=data)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    options = {
+        "camera_entity": "camera.meter",
+        "ai_task_entity": "ai_task.vision",
+        "digits": 8.0,
+        "decimal_places": 3.0,
+        "pointer_dials": 1.0,
+        "read_interval": 15.0,
+        "light_warmup": 0.0,
+        "notify_services": [],
+        "persistent_notification": True,
+    }
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    for regions, errors in (
+        ({"counter_region": "192,158,296"}, {"counter_region": "invalid_region"}),
+        ({"dial_regions": "430,288,104,104;1,1,5,5"}, {"dial_regions": "dial_regions_count"}),
+        ({"dial_regions": "430,288,0,104"}, {"dial_regions": "invalid_region"}),
+    ):
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {**options, **regions})
+        assert result["errors"] == errors, regions
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**options, "counter_region": "192,158,296,50", "dial_regions": " 430,288,104,104 "}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["counter_region"] == "192,158,296,50"
+
+    # Removing the regions in the form clears them.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], options)
+    await hass.async_block_till_done()
+    assert entry.options["counter_region"] == "" and entry.options["dial_regions"] == ""

@@ -18,6 +18,8 @@ It is distributed under the same licence (see [`LICENSE`](LICENSE)).
   sensor is `total` instead of `total_increasing`; the current reading is required at setup.
 - `monitor.py`, `config_flow.py`, `sensor.py`, `number.py`, translations and card: the pointer-dial
   option, the precision it adds, and the new attributes.
+- `image.py`, `monitor.py` (0.3.0): the last frame is annotated with the counter position, the digits
+  read and the result (new `annotate.py`); the clean frame is a second image entity.
 - New tests for the above; documentation rewritten, with a setup guide in `docs/`.
 
 Files carry a `Based on … ha-ai-meter-reader v1.0.1` line where they were modified; unmodified files keep

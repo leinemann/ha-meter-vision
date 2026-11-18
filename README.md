@@ -131,6 +131,8 @@ entity: sensor.water_meter_reading
 | Reading interval | 15 min | How often the meter is read. Every reading is one AI call: see [cost](docs/setup-guide.md#3-model-and-cost). |
 | Light warm-up | 30 s | Wait between light on and frame. Cameras with automatic exposure need 20–30 s or the frame is dark. |
 | Notes about the meter | — | Anything peculiar about the counter, added to the AI instructions, for example *"the wheels are white on black; ignore the serial number above them"*. |
+| Counter position | — | Where the row of wheels is in the frame, in pixels: `x, y, width, height`. Draws one box per wheel on the last frame, with the digit read. See [the annotated frame](docs/setup-guide.md#5-the-annotated-frame). |
+| Dial positions | — | The same for each pointer dial, separated by `;`. |
 | Notification services | — | `notify.*` actions that receive the alert, for example the mobile app. |
 | Persistent notifications | on | Also show the alert in Home Assistant. |
 
@@ -143,7 +145,7 @@ entity: sensor.water_meter_reading
 | `show_counter` | `true` | The reading drawn as a meter counter; decimal wheels in red. |
 | `show_consumption` | `true` | Consumption of today, yesterday and the last 24 hours. |
 | `show_chart` | `true` | Hourly consumption of the last 24 hours. |
-| `show_frame` | `true` | The last frame sent to the AI, with the digits it read. Tap to expand. |
+| `show_frame` | `true` | The last frame, annotated with what the AI read and the result. Tap to expand. |
 | `show_result` | `true` | The result of the last reading and its confidence. |
 | `show_buttons` | `true` | Read now, and automatic reading on/off. |
 
@@ -159,14 +161,17 @@ language of Home Assistant (English and Italian).
 | `sensor.water_meter_confidence` | Confidence 0–10 of the last answer. |
 | `sensor.water_meter_last_read` | Time of the last reading attempt. |
 | `sensor.water_meter_value_read` | Diagnostic: the last value read by the AI, even if rejected. |
-| `image.water_meter_last_frame` | The frame of the last reading attempt. |
+| `image.water_meter_last_frame` | The frame of the last reading attempt, annotated: a box per wheel with the digit read (coloured by confidence, X crossed out in red), the dials circled, and the result, reading and time on top. Without a counter position only the top banner is drawn. |
+| `image.water_meter_raw_frame` | Diagnostic: the same frame exactly as it was sent to the AI, without drawings. |
 | `binary_sensor.water_meter_problem` | `on` after three failed readings in a row. |
 | `binary_sensor.water_meter_reading_in_progress` | `on` while a reading runs. |
 | `button.water_meter_read_now` | Reads the meter now. |
 | `switch.water_meter_automatic_reading` | Readings at every interval (the button works either way). |
 | `number.water_meter_max_increase` | Largest increase accepted between two readings one interval apart; more needs confirmation. The default depends on the unit (for example 300 L, 0.3 m³ of water, 1 m³ of gas, 5 kWh). |
 
-The frame is also kept in the media folder (`meter_vision/water_meter.jpg`), never under `/config/www`.
+The clean frame is also kept in the media folder (`meter_vision/water_meter.jpg`), never under
+`/config/www`. Both images are taken once per reading and served by Home Assistant: opening a dashboard
+never triggers the camera.
 
 ### Action `meter_vision.set_reading`
 

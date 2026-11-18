@@ -57,6 +57,8 @@
           "read_interval": "Reading interval",
           "light_warmup": "Light warm-up",
           "meter_notes": "Notes about the meter (optional)",
+          "counter_region": "Counter position (optional)",
+          "dial_regions": "Dial positions (optional)",
           "notify_services": "Notification services",
           "persistent_notification": "Persistent notifications"
         },
@@ -71,6 +73,8 @@
           "read_interval": "How often the meter is read.",
           "light_warmup": "Wait between turning the light on and taking the frame. Cameras with automatic exposure need 20-30 s, otherwise the frame is dark.",
           "meter_notes": "Anything peculiar about the counter, added to the AI instructions. For example: \"ignore the last digit on a light blue background\".",
+          "counter_region": "Where the row of wheels is in the frame, in pixels: x, y, width, height (for example 192, 158, 296, 50). Only used to draw one box per wheel on the last frame, with the digit read; the AI always gets the whole frame. Find the numbers on the clean frame (\"Frame sent to the AI\") in any image editor.",
+          "dial_regions": "Same for each pointer dial, separated by ; (for example 430, 288, 104, 104). One per dial, or empty.",
           "notify_services": "Notify actions that receive an alert when the meter cannot be read several times in a row.",
           "persistent_notification": "Also show the alert in the Home Assistant notifications."
         }
@@ -78,7 +82,9 @@
     },
     "error": {
       "too_many_decimals": "The decimal digits must be fewer than the digits of the counter.",
-      "same_ai_task": "Choose a different entity, or none."
+      "same_ai_task": "Choose a different entity, or none.",
+      "invalid_region": "Write four whole numbers: x, y, width, height (width and height above 0).",
+      "dial_regions_count": "Give one position per pointer dial, or none."
     }
   },
   "selector": {
@@ -107,6 +113,9 @@
     "image": {
       "last_frame": {
         "name": "Last frame"
+      },
+      "raw_frame": {
+        "name": "Frame sent to the AI"
       }
     },
     "number": {
