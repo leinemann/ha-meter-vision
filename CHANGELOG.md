@@ -16,9 +16,10 @@ All notable changes to this project are documented here. The format follows
   decreases. With the median the reading never leaves the true range (0 L error at 5- and 15-minute rounds). The replay
   is a test now (`tests/test_field_corpus.py`).
 - The growth gate is measured from the newest plausible reading and capped at three intervals of the
-  maximum increase. Readings rejected on the same side for two hours (at least 5, steadily agreeing) move
-  the reading: catching up after an outage, following a meter faster than the maximum increase, undoing
-  a misread that got in. `unconfirmed` only means "no value at all" and now counts as a failure.
+  maximum increase. Readings rejected above it for two hours (at least 5, steadily agreeing) move the
+  reading up: catching up after an outage, following a meter faster than the maximum increase. Readings
+  rejected below for two hours only undo such a move, within a day. `unconfirmed` only means "no value at
+  all" and now counts as a failure.
 - The setup reading fills the window, so a single misread right after setup is outvoted too.
 - A frame identical to the previous one is an error and isn't sent to the AI (frozen camera).
 - Stored state that can't be read falls back to the setup reading instead of starting from nothing.

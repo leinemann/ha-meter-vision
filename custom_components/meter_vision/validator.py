@@ -33,11 +33,20 @@ consumption instead of being counted as a meter reset.
 Rejected readings on the same side of the gate that keep agreeing (never
 dropping by more than their tolerance) for ``RUN_SPAN``, at least
 ``WINDOW_SIZE`` of them, replace the window. That is the way back after a camera
-outage, from a meter running faster than the maximum increase, and from a
-misread that did get in. Upwards it is never more than the meter could do in
-``MAX_JUMP_SPAN``. The field data's longest misread run was 15 minutes; a
-frozen camera, which would repeat itself for ever, is caught before it gets
-here (an identical frame is an error).
+outage and from a meter running faster than the maximum increase; upwards it is
+never more than the meter could do in ``MAX_JUMP_SPAN``. Downwards a run may
+only undo the last upward re-base, within ``MAX_JUMP_SPAN`` and no lower than
+where that started: otherwise a dropped digit repeated for two hours would take
+the reading down with it.
+
+The gate follows a meter running at up to the maximum increase per interval,
+so a chain of misreads that climbs by no more than that each interval, and then
+holds the majority, is indistinguishable from real use. The maximum increase is
+the only defence there: set it near the meter's real peak, not far above.
+
+The field data's longest misread run was 15 minutes. A frozen camera, which
+would repeat itself for ever, is caught before it gets here (an identical frame
+is an error).
 
 ``set`` fills the window with the given value, so the first readings after it
 need a majority like every later one. Without any value (saved state lost and
@@ -58,6 +67,7 @@ from typing import Any
 from .const import AGREE_STEPS, GROWTH_CAP_PERIODS, MAX_JUMP_SPAN, RUN_SPAN, WINDOW_SIZE
 
 _EPSILON = 1e-9
+_MAX_PENDING = 200  # a rejected run is kept to this length (a few days at 15 minutes)
 
 
 class Outcome(StrEnum):
@@ -104,6 +114,9 @@ class ReadingValidator:
         self.value_at: datetime | None = None  # time of the last plausible reading
         self.window: list[_Point] = []
         self.pending: list[_Point] = []  # rejected readings in a row, or the start-up collection
+        # The value published before the last upward re-base, and when that happened:
+        # the only level a downward run may return to (see ``_run``).
+        self.rebased_from: _Point | None = None
 
     @staticmethod
     def allowed(max_increase: float, elapsed: timedelta, interval: timedelta) -> float:
@@ -140,27 +153,42 @@ class ReadingValidator:
         if value - self.value > self.allowed(max_increase, span, interval) + _EPSILON:
             self.pending = []  # more than the meter could do in a day: never taken
             return outcome
-        return self._run(point, outcome, tolerance)
+        return self._run(point, outcome, max_increase, tolerance)
 
-    def _run(self, point: _Point, outcome: Outcome, tolerance: float) -> Outcome:
+    def _run(self, point: _Point, outcome: Outcome, max_increase: float, tolerance: float) -> Outcome:
         """Track rejected readings on one side of the gate; re-base on a long, steady run.
 
         The camera has been offline while the pool filled, the meter ran faster than
-        the maximum increase, or a misread got published and every true reading is
-        now a decrease: readings that keep agreeing for ``RUN_SPAN`` (and at least a
-        full window of them) win. A misread repeated that long is a broken camera;
-        the problem alert has fired long before.
+        the maximum increase, or an upward run turned out to be a misread and every
+        true reading is now a decrease: readings that keep agreeing for ``RUN_SPAN``
+        (and at least a full window of them) win. A misread repeated that long is a
+        broken camera; the problem alert has fired long before.
+
+        Downwards, a run may only undo the last upward re-base, within
+        ``MAX_JUMP_SPAN`` of it, and not go below where it started. Up and down runs
+        look the same in the values: what tells a correction from a dropped digit
+        repeated for two hours is that there is something to correct. Any other
+        sustained decrease needs ``set`` (a replaced meter, a wrong setup reading).
         """
         assert self.value is not None
-        side = point.value > self.value
+        up = point.value > self.value
         last = self.pending[-1] if self.pending else None
-        if last is not None and (last.value > self.value) == side and point.value >= last.value - tolerance - _EPSILON:
-            self.pending = [*self.pending, point]
+        if last is not None and (last.value > self.value) == up and point.value >= last.value - tolerance - _EPSILON:
+            self.pending = [*self.pending, point][-_MAX_PENDING:]
         else:
             self.pending = [point]
         run = self.pending
         if len(run) < WINDOW_SIZE or run[-1].at - run[0].at < RUN_SPAN:
             return outcome
+        target = _median(run[-WINDOW_SIZE:])
+        origin = self.rebased_from
+        if not up and (
+            origin is None
+            or point.at - origin.at > MAX_JUMP_SPAN
+            or target < origin.value - max(max_increase, tolerance) - _EPSILON
+        ):
+            return outcome
+        self.rebased_from = _Point(self.value, point.at) if up else None
         self.pending, self.window, self.value = [], [], None
         for p in run[-WINDOW_SIZE:]:
             self._add(p)
@@ -195,7 +223,7 @@ class ReadingValidator:
         The window is filled with it, so the first readings after it need a
         majority to move the value, like every later one.
         """
-        self.pending = []
+        self.pending, self.rebased_from = [], None
         self.window = [_Point(value, now)] * WINDOW_SIZE
         self.value, self.value_at = value, now
 
@@ -211,6 +239,7 @@ class ReadingValidator:
             "value_at": self.value_at.isoformat() if self.value_at else None,
             "window": [[p.value, p.at.isoformat()] for p in self.window],
             "pending": [[p.value, p.at.isoformat()] for p in self.pending],
+            "rebased_from": [self.rebased_from.value, self.rebased_from.at.isoformat()] if self.rebased_from else None,
         }
 
     @classmethod
@@ -227,6 +256,8 @@ class ReadingValidator:
                 validator.window = window[-WINDOW_SIZE:] or [_Point(value, at)] * WINDOW_SIZE
                 validator.value, validator.value_at = value, at  # the published value, hysteresis included
             validator.pending = [_Point(float(v), datetime.fromisoformat(t)) for v, t in data.get("pending") or []]
+            if origin := data.get("rebased_from"):
+                validator.rebased_from = _Point(float(origin[0]), datetime.fromisoformat(origin[1]))
         except (TypeError, ValueError):
             return cls()
         return validator

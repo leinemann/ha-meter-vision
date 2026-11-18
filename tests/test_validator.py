@@ -171,15 +171,56 @@ def test_a_misread_repeated_for_less_than_two_hours_is_never_published() -> None
     assert validator.value == 140.916
 
 
-def test_a_published_misread_is_undone_after_two_hours_of_true_readings() -> None:
-    # A wrong correction by hand (or a misread that held for two hours): the true
-    # readings, all "decreases", take the reading back once they agree for RUN_SPAN.
-    validator = _validator(141.9)
-    reads = 1 + int(RUN_SPAN / INTERVAL)
-    outcomes = _feed(validator, [140.916 + 0.0001 * i for i in range(reads)], max_increase=0.3, tolerance=0.0001)
-    assert outcomes[:-1] == [Outcome.DECREASE] * (reads - 1)
+def _run_length() -> int:
+    return 1 + int(RUN_SPAN / INTERVAL)  # first to last spans RUN_SPAN
+
+
+def test_a_misread_that_held_for_two_hours_is_undone_by_two_hours_of_true_readings() -> None:
+    validator = _validator(140.915)
+    n = _run_length()
+    _feed(validator, [141.9] * n, max_increase=0.3, tolerance=0.0001)
+    assert validator.value == 141.9  # a broken camera, held for RUN_SPAN: it got in
+    assert validator.rebased_from.value == 140.915
+    outcomes = _feed(
+        validator, [140.916 + 0.0001 * i for i in range(n)], start=n + 1, max_increase=0.3, tolerance=0.0001
+    )
+    assert outcomes[:-1] == [Outcome.DECREASE] * (n - 1)
     assert outcomes[-1] is Outcome.ACCEPTED
     assert 140.916 <= validator.value < 140.92
+    assert validator.rebased_from is None
+
+
+@pytest.mark.parametrize("misread", [139.93, 11.93])  # a wheel one low; a dropped digit
+def test_a_repeated_low_misread_never_takes_the_reading_down(misread: float) -> None:
+    validator = _validator(140.915)
+    outcomes = _feed(validator, [misread] * (4 * _run_length()), max_increase=0.3, tolerance=0.0001)
+    assert set(outcomes) == {Outcome.DECREASE}
+    assert validator.value == 140.915
+
+
+def test_a_downward_run_stops_where_the_upward_one_started() -> None:
+    validator = _validator(140.915)
+    n = _run_length()
+    _feed(validator, [141.9] * n, max_increase=0.3, tolerance=0.0001)
+    outcomes = _feed(validator, [139.93] * (2 * n), start=n + 1, max_increase=0.3, tolerance=0.0001)
+    assert Outcome.ACCEPTED not in outcomes
+    assert validator.value == 141.9  # the problem alert has long fired; set_reading fixes it
+
+
+def test_an_upward_re_base_can_only_be_undone_within_a_day() -> None:
+    validator = _validator(140.915)
+    n = _run_length()
+    _feed(validator, [141.9] * n, max_increase=0.3, tolerance=0.0001)
+    _feed(validator, [141.9] * 96, start=n + 1, max_increase=0.3, tolerance=0.0001)  # a day of agreement
+    outcomes = _feed(validator, [140.916] * n, start=n + 97, max_increase=0.3, tolerance=0.0001)
+    assert Outcome.ACCEPTED not in outcomes
+
+
+def test_the_re_base_origin_survives_a_restart() -> None:
+    validator = _validator(140.915)
+    _feed(validator, [141.9] * _run_length(), max_increase=0.3, tolerance=0.0001)
+    restored = ReadingValidator.from_dict(validator.as_dict())
+    assert restored.rebased_from == validator.rebased_from
 
 
 @pytest.mark.parametrize("rate", [0.05, 0.1, 0.15, 0.2, 0.3])

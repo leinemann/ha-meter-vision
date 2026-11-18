@@ -194,12 +194,15 @@ it holds the majority, and stops counting when it loses it. On the same two days
 | No more than the maximum increase below it, and no more than the allowed growth above it | `accepted`: joins the window; the reading becomes the median of the window |
 | Further below | `decrease`: rejected |
 | Further above | `implausible`: rejected |
-| Rejected on the same side for **2 hours** (at least 5 readings), steadily agreeing | `accepted`: the reading moves to them. This is how it catches up after a camera outage, follows a meter running faster than the maximum increase, and undoes a misread that did get in. Never more than a day at the maximum increase upwards |
+| Rejected **above** for 2 hours (at least 5 readings), steadily agreeing | `accepted`: the reading moves up to them. This is how it catches up after a camera outage or follows a meter running faster than the maximum increase. Never more than a day at the maximum increase |
+| Rejected **below** for 2 hours, steadily agreeing | `accepted` only to undo such an upward move within a day, and never below where it started. Any other lasting decrease (a replaced meter, a dropped digit repeated for hours) stays rejected and needs `meter_vision.set_reading` |
 | No value at all (saved state lost) | `unconfirmed` until 5 readings agree; counts as a failure |
 | Any wheel but the last marked unreadable, confidence below 4, or too many digits | `unreadable` / `wrong_digits`: the frame is retried once, then rejected |
 
 - The allowed growth is the *maximum increase per reading* for each interval since the newest plausible
-  reading, at least one and at most three, measured from that reading (not from the median, which trails). If your meter can run faster than the default (a pool fill, a
+  reading, at least one and at most three, measured from that reading (not from the median, which trails).
+- The maximum increase is also the limit of what the check can tell apart: misreads that climb by no more
+  than it each interval look exactly like real use. Set it near your meter's real peak, not far above. If your meter can run faster than the default (a pool fill, a
   garden hose), raise it from the device page.
 - The median trails a steadily running meter by about two readings. Totals are unaffected.
 - The median can step back down when a misread had briefly won. That's why the reading is a `total`
