@@ -20,6 +20,8 @@ It is distributed under the same licence (see [`LICENSE`](LICENSE)).
   option, the precision it adds, and the new attributes.
 - `image.py`, `monitor.py` (0.3.0): the last frame is annotated with the counter position, the digits
   read and the result (new `annotate.py`); the clean frame is a second image entity.
+- `monitor.py` (0.3.2): a light that is already on is left as it is; an unexpected exception from a
+  camera or AI integration counts as a failed reading and falls back to the next AI engine.
 - New tests for the above; documentation rewritten, with a setup guide in `docs/`.
 
 Files carry a `Based on … ha-ai-meter-reader v1.0.1` line where they were modified; unmodified files keep

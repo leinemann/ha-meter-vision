@@ -22,7 +22,7 @@ from typing import Any
 
 from homeassistant.components import camera, persistent_notification
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
+from homeassistant.const import ATTR_ENTITY_ID, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -365,6 +365,10 @@ class MeterMonitor:
                 self.last_error = str(err) or type(err).__name__
                 _LOGGER.warning("%s: reading failed: %s", self.entry.title, self.last_error)
                 result = None
+            except Exception as err:  # a bug in a camera or AI integration is still a failed reading
+                self.last_error = str(err) or type(err).__name__
+                _LOGGER.exception("%s: reading failed unexpectedly", self.entry.title)
+                result = None
             finally:
                 self.reading = False
             outcome = self._record(result)
@@ -438,7 +442,8 @@ class MeterMonitor:
     @asynccontextmanager
     async def _light_on(self) -> AsyncIterator[None]:
         light = self.light_entity
-        if light is None or self._state(light) in (None, STATE_UNAVAILABLE):
+        # A light that is already on is someone else's: use it as it is, never switch it off.
+        if light is None or self._state(light) in (None, STATE_UNAVAILABLE, STATE_ON):
             yield
             return
         await self.hass.services.async_call(
@@ -487,6 +492,10 @@ class MeterMonitor:
                     )
                 result = parse_reading((response or {}).get("data"), self.digits, self.decimals, self.dials)
             except (HomeAssistantError, TimeoutError, ValueError) as err:
+                errors.append(f"{engine}: {str(err) or type(err).__name__}")
+                continue
+            except Exception as err:  # a bug in one AI integration must not block the fallback
+                _LOGGER.exception("%s: %s failed unexpectedly", self.entry.title, engine)
                 errors.append(f"{engine}: {str(err) or type(err).__name__}")
                 continue
             self.last_engine = engine

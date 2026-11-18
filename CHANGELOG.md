@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-18
+
+### Fixed
+
+- **A light that is already on is left alone.** A reading used to turn the light to full brightness and then
+  off, even when someone had it on. Now a light that is on is used as it is and never switched off.
+- **An unexpected error in a camera or AI integration counts as a failed reading.** Until now an exception
+  other than the usual Home Assistant ones ended the reading without recording it: no failure was counted,
+  so the problem alert never fired. It is now logged with its traceback, shown as the last error and
+  counted, and an AI engine that fails this way falls back to the fallback engine.
+
 ## [0.3.1] - 2026-11-18
 
 ### Changed
