@@ -2,6 +2,24 @@
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.coverage.run]
+source = ["custom_components/meter_vision"]
+branch = true
+
+[tool.coverage.report]
+# 98% when this gate was added (0.3.1): the gate catches a real drop, not a refactor.
+fail_under = 95
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+python_version = "3.13"
+files = ["custom_components/meter_vision"]
+check_untyped_defs = true
+warn_redundant_casts = true
+no_implicit_optional = true
+strict_equality = true
+
 [tool.ruff]
 target-version = "py313"
 line-length = 120

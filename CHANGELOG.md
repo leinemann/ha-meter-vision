@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-18
+
+### Changed
+
+- **Own icon.** Meter Vision now has its own icon (a meter counter in a camera viewfinder), drawn from
+  shapes by `scripts/make_icon.py`; until now the integration shipped ha-ai-meter-reader's icon.
+
+### Fixed
+
+- Labels on the annotated frame could be placed at fractional pixel positions with a FreeType font
+  (Pillow's font size is a float). Found by the new type check.
+
+### Development
+
+- CI runs mypy and enforces 95% test coverage (98% at this release) in *Lint and tests*.
+- CodeQL scans the Python, the card and the workflows on every pull request and weekly.
+- The README shows a real annotated frame.
+
 ## [0.3.0] - 2026-11-18
 
 ### Added

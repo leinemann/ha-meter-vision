@@ -39,6 +39,7 @@ scripts/check.sh -k validator      # extra arguments go to pytest
 | `frontend/meter-vision-card.js` | The card: one dependency-free ES module, no build step |
 | `translations/en.json`, `it.json` | Integration strings (the card has its own `STRINGS` table) |
 | `tests/` | `test_reading.py`, `test_validator.py` (pure), `test_monitor.py` (end to end on a real Home Assistant core with a fake AI Task service), `test_config_flow.py`, `test_consistency.py` |
+| `scripts/make_icon.py` | Draws `brand/icon.png` and `icon@2x.png` from shapes (no fonts); re-run after changing the icon. |
 | `scripts/preview.html` | The card with fictional demo values; `demo-frame.jpg` is a drawn meter (no photo), saved without metadata |
 
 ## Rules that keep it maintainable
