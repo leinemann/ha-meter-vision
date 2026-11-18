@@ -7,31 +7,43 @@ on:
     - cron: "0 3 * * 1"
   workflow_dispatch:
 
-permissions:
-  contents: read
+# Least privilege: nothing by default, each job asks for what it needs.
+# Actions are pinned to commit SHAs (Dependabot keeps them current).
+permissions: {}
 
 jobs:
   hacs:
     name: HACS validation
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: hacs/action@main
+      - uses: hacs/action@d556e736723344f83838d08488c983a15381059a # 22.5.0
         with:
           category: integration
 
   hassfest:
     name: Hassfest
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: home-assistant/actions/hassfest@master
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # home-assistant/actions publishes no releases: pinned to master as of 2026-11-18.
+      - uses: home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361 # master
 
   tests:
     name: Lint and tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
           cache: pip
@@ -41,7 +53,9 @@ jobs:
 
   # Releasing = changing "version" in manifest.json on main. Once every check
   # above is green, the tag and the GitHub release are created automatically,
-  # with the matching CHANGELOG.md section as notes.
+  # with the matching CHANGELOG.md section as notes. main only changes through a
+  # reviewed pull request, so merging a version bump IS the release decision.
+  # The only job allowed to write: it creates the tag and the release.
   release:
     name: Release
     needs: [hacs, hassfest, tests]
@@ -52,7 +66,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Create the release if this version has none
         run: |
           VERSION=$(jq -r .version custom_components/meter_vision/manifest.json)
