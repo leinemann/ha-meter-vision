@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Meter Vision icon: a meter counter with an AI spark. -->
+  <circle cx="122" cy="134" r="100" fill="#0277bd" opacity=".18"/>
+  <circle cx="122" cy="134" r="84" fill="#ffffff" stroke="#0277bd" stroke-width="12"/>
+  <rect x="50" y="110" width="144" height="48" rx="8" fill="#1d2229"/>
+  <rect x="58" y="118" width="24" height="32" rx="3" fill="#3d434d"/>
+  <rect x="86" y="118" width="24" height="32" rx="3" fill="#3d434d"/>
+  <rect x="114" y="118" width="24" height="32" rx="3" fill="#3d434d"/>
+  <rect x="142" y="118" width="20" height="32" rx="3" fill="#c62828"/>
+  <rect x="166" y="118" width="20" height="32" rx="3" fill="#c62828"/>
+  <path d="M122 176 c-10 14 -14 20 -14 26 a14 14 0 0 0 28 0 c0 -6 -4 -12 -14 -26 z" fill="#29b6f6"/>
+  <path d="M206 22 l8 19 19 8 -19 8 -8 19 -8 -19 -19 -8 19 -8 z" fill="#ffb300"/>
+</svg>

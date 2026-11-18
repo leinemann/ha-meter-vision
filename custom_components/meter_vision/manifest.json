@@ -1,0 +1,28 @@
+{
+  "domain": "meter_vision",
+  "name": "Meter Vision",
+  "after_dependencies": [
+    "ai_task",
+    "light",
+    "media_source",
+    "notify"
+  ],
+  "categories": [
+    "energy"
+  ],
+  "codeowners": [
+    "@leinemann"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "camera",
+    "frontend",
+    "http"
+  ],
+  "documentation": "https://github.com/leinemann/ha-meter-vision",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/leinemann/ha-meter-vision/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

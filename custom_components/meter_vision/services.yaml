@@ -1,0 +1,14 @@
+set_reading:
+  target:
+    entity:
+      integration: meter_vision
+      domain: sensor
+  fields:
+    value:
+      required: true
+      example: 1234.5
+      selector:
+        number:
+          min: 0
+          step: any
+          mode: box

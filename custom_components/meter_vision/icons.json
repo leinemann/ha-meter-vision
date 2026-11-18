@@ -1,0 +1,73 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "problem": {
+        "default": "mdi:counter",
+        "state": {
+          "on": "mdi:alert-circle"
+        }
+      },
+      "reading_in_progress": {
+        "default": "mdi:camera-iris",
+        "state": {
+          "on": "mdi:robot"
+        }
+      }
+    },
+    "button": {
+      "read_now": {
+        "default": "mdi:camera-iris"
+      }
+    },
+    "image": {
+      "last_frame": {
+        "default": "mdi:image-search-outline"
+      }
+    },
+    "number": {
+      "max_increase": {
+        "default": "mdi:chart-line-variant"
+      }
+    },
+    "sensor": {
+      "reading": {
+        "default": "mdi:counter"
+      },
+      "last_result": {
+        "default": "mdi:help-circle-outline",
+        "state": {
+          "accepted": "mdi:check-circle",
+          "unconfirmed": "mdi:timer-sand",
+          "decrease": "mdi:arrow-down-bold-circle",
+          "implausible": "mdi:alert-octagon",
+          "unreadable": "mdi:eye-off",
+          "wrong_digits": "mdi:numeric-positive-1",
+          "error": "mdi:alert-circle",
+          "corrected": "mdi:pencil-circle"
+        }
+      },
+      "confidence": {
+        "default": "mdi:eye-check"
+      },
+      "last_read": {
+        "default": "mdi:clock-check-outline"
+      },
+      "value_read": {
+        "default": "mdi:numeric"
+      }
+    },
+    "switch": {
+      "automatic_reading": {
+        "default": "mdi:timer-outline",
+        "state": {
+          "off": "mdi:timer-off-outline"
+        }
+      }
+    }
+  },
+  "services": {
+    "set_reading": {
+      "service": "mdi:pencil"
+    }
+  }
+}

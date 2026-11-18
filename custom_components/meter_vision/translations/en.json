@@ -1,0 +1,221 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up a meter",
+        "description": "A camera looks at the counter of your meter and an AI Task entity reads its digits. Each reading is checked before it is used, so a misread digit never reaches your statistics or the Energy dashboard.",
+        "data": {
+          "meter_type": "Meter type",
+          "name": "Name (optional)"
+        },
+        "data_description": {
+          "name": "Used for the device and as the prefix of the entity IDs. Default: \"Water meter\", \"Gas meter\" or \"Energy meter\"."
+        }
+      },
+      "meter": {
+        "title": "{name}",
+        "description": "The camera can be any camera entity, for example an ESP32-CAM with ESPHome pointed at the counter.",
+        "data": {
+          "unit_of_measurement": "Unit of the counter",
+          "camera_entity": "Camera",
+          "light_entity": "Camera light (optional)",
+          "ai_task_entity": "AI Task entity",
+          "digits": "Digits of the counter",
+          "decimal_places": "Decimal digits",
+          "pointer_dials": "Pointer dials",
+          "initial_reading": "Current reading (optional)"
+        },
+        "data_description": {
+          "unit_of_measurement": "The unit of the number on the counter, with the decimal digits below. It cannot be changed later.",
+          "camera_entity": "A camera pointed at the counter.",
+          "light_entity": "Turned on for each frame and off right after, for meters in the dark.",
+          "ai_task_entity": "An AI Task entity that can read images (for example Anthropic, Google Gemini, OpenAI or Ollama with a vision model).",
+          "digits": "How many digits the AI must read, leading zeros and decimal digits included, pointer dials not. 0 = do not check.",
+          "decimal_places": "How many of the last digits are after the decimal point (often red). For example 3 for a counter of 8 digits in m³ with 3 red ones.",
+          "pointer_dials": "Small round dials with a pointer after the decimal wheels (x0.0001, x0.001, ...), read for extra resolution. Each dial is one more decimal: for example 1 for a water meter in m³ with 3 red wheels and a x0.0001 dial. 0 = none.",
+          "initial_reading": "The value shown now by the meter. With it the first reading is accepted at once; without it, two consistent readings are needed."
+        }
+      }
+    },
+    "error": {
+      "too_many_decimals": "The decimal digits must be fewer than the digits of the counter.",
+      "same_ai_task": "Choose a different entity, or none."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Meter options",
+        "data": {
+          "camera_entity": "Camera",
+          "light_entity": "Camera light (optional)",
+          "ai_task_entity": "AI Task entity",
+          "fallback_ai_task_entity": "Fallback AI Task entity (optional)",
+          "digits": "Digits of the counter",
+          "decimal_places": "Decimal digits",
+          "pointer_dials": "Pointer dials",
+          "read_interval": "Reading interval",
+          "light_warmup": "Light warm-up",
+          "meter_notes": "Notes about the meter (optional)",
+          "notify_services": "Notification services",
+          "persistent_notification": "Persistent notifications"
+        },
+        "data_description": {
+          "camera_entity": "A camera pointed at the counter.",
+          "light_entity": "Turned on for each frame and off right after, for meters in the dark.",
+          "ai_task_entity": "An AI Task entity that can read images (for example Anthropic, Google Gemini, OpenAI or Ollama with a vision model).",
+          "fallback_ai_task_entity": "Used when the main entity is unavailable or fails, for example a cloud model behind a local one.",
+          "digits": "How many digits the AI must read, leading zeros and decimal digits included, pointer dials not. 0 = do not check.",
+          "decimal_places": "How many of the last digits are after the decimal point (often red).",
+          "pointer_dials": "Small round dials with a pointer after the decimal wheels (x0.0001, x0.001, ...), read for extra resolution. Each dial is one more decimal: for example 1 for a water meter in m³ with 3 red wheels and a x0.0001 dial. 0 = none.",
+          "read_interval": "How often the meter is read.",
+          "light_warmup": "Wait between turning the light on and taking the frame. Cameras with automatic exposure need 20-30 s, otherwise the frame is dark.",
+          "meter_notes": "Anything peculiar about the counter, added to the AI instructions. For example: \"ignore the last digit on a light blue background\".",
+          "notify_services": "Notify actions that receive an alert when the meter cannot be read several times in a row.",
+          "persistent_notification": "Also show the alert in the Home Assistant notifications."
+        }
+      }
+    },
+    "error": {
+      "too_many_decimals": "The decimal digits must be fewer than the digits of the counter.",
+      "same_ai_task": "Choose a different entity, or none."
+    }
+  },
+  "selector": {
+    "meter_type": {
+      "options": {
+        "water": "Water",
+        "gas": "Gas",
+        "energy": "Electricity or heat"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "problem": {
+        "name": "Problem"
+      },
+      "reading_in_progress": {
+        "name": "Reading in progress"
+      }
+    },
+    "button": {
+      "read_now": {
+        "name": "Read now"
+      }
+    },
+    "image": {
+      "last_frame": {
+        "name": "Last frame"
+      }
+    },
+    "number": {
+      "max_increase": {
+        "name": "Maximum increase per reading"
+      }
+    },
+    "sensor": {
+      "reading": {
+        "name": "Reading",
+        "state_attributes": {
+          "updated_at": {
+            "name": "Updated at"
+          },
+          "pending_value": {
+            "name": "Waiting for confirmation"
+          },
+          "meter_type": {
+            "name": "Meter type",
+            "state": {
+              "water": "Water",
+              "gas": "Gas",
+              "energy": "Electricity or heat"
+            }
+          },
+          "digits": {
+            "name": "Digits"
+          },
+          "decimal_places": {
+            "name": "Decimal digits"
+          },
+          "pointer_dials": {
+            "name": "Pointer dials"
+          },
+          "camera_entity": {
+            "name": "Camera"
+          },
+          "light_entity": {
+            "name": "Camera light"
+          }
+        }
+      },
+      "last_result": {
+        "name": "Last result",
+        "state": {
+          "accepted": "Accepted",
+          "unconfirmed": "Waiting for confirmation",
+          "decrease": "Rejected: lower",
+          "implausible": "Rejected: implausible jump",
+          "unreadable": "Not readable",
+          "wrong_digits": "Rejected: too many digits",
+          "error": "Error",
+          "corrected": "Set by hand"
+        },
+        "state_attributes": {
+          "digits_read": {
+            "name": "Digits read"
+          },
+          "dials_read": {
+            "name": "Dials read"
+          },
+          "last_wheel_rolling": {
+            "name": "Last wheel between two numbers"
+          },
+          "consecutive_failures": {
+            "name": "Consecutive failures"
+          },
+          "ai_engine": {
+            "name": "AI engine"
+          },
+          "last_error": {
+            "name": "Last error"
+          }
+        }
+      },
+      "confidence": {
+        "name": "Confidence"
+      },
+      "last_read": {
+        "name": "Last reading attempt"
+      },
+      "value_read": {
+        "name": "Last value read"
+      }
+    },
+    "switch": {
+      "automatic_reading": {
+        "name": "Automatic reading"
+      }
+    }
+  },
+  "exceptions": {
+    "no_ai": {
+      "message": "{name} has no AI Task entity: add one in the options."
+    },
+    "negative_reading": {
+      "message": "A meter reading cannot be negative."
+    }
+  },
+  "services": {
+    "set_reading": {
+      "name": "Set reading",
+      "description": "Sets the reading of a meter by hand, for example after replacing the meter or to fix a wrong value. The next readings are checked against it.",
+      "fields": {
+        "value": {
+          "name": "Value",
+          "description": "The value shown by the meter, in its unit."
+        }
+      }
+    }
+  }
+}

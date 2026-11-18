@@ -1,0 +1,221 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configura un contatore",
+        "description": "Una telecamera inquadra il totalizzatore del contatore e un'entità AI Task ne legge le cifre. Ogni lettura viene verificata prima di essere usata: una cifra letta male non arriva mai alle statistiche né alla dashboard Energia.",
+        "data": {
+          "meter_type": "Tipo di contatore",
+          "name": "Nome (facoltativo)"
+        },
+        "data_description": {
+          "name": "Usato per il dispositivo e come prefisso degli ID delle entità. Predefinito: \"Water meter\", \"Gas meter\" o \"Energy meter\"."
+        }
+      },
+      "meter": {
+        "title": "{name}",
+        "description": "Va bene qualsiasi entità telecamera, per esempio una ESP32-CAM con ESPHome puntata sul totalizzatore.",
+        "data": {
+          "unit_of_measurement": "Unità del contatore",
+          "camera_entity": "Telecamera",
+          "light_entity": "Luce della telecamera (facoltativa)",
+          "ai_task_entity": "Entità AI Task",
+          "digits": "Cifre del totalizzatore",
+          "decimal_places": "Cifre decimali",
+          "pointer_dials": "Quadranti a lancetta",
+          "initial_reading": "Lettura attuale (facoltativa)"
+        },
+        "data_description": {
+          "unit_of_measurement": "L'unità del numero sul totalizzatore, considerando le cifre decimali indicate sotto. Non si può cambiare in seguito.",
+          "camera_entity": "Una telecamera puntata sul totalizzatore.",
+          "light_entity": "Accesa per ogni fotogramma e spenta subito dopo, per i contatori al buio.",
+          "ai_task_entity": "Un'entità AI Task in grado di leggere immagini (per esempio Anthropic, Google Gemini, OpenAI oppure Ollama con un modello vision).",
+          "digits": "Quante cifre deve leggere l'AI, contando gli zeri iniziali e le cifre decimali, non i quadranti a lancetta. 0 = nessun controllo.",
+          "decimal_places": "Quante delle ultime cifre stanno dopo la virgola (spesso rosse). Per esempio 3 per un totalizzatore a 8 cifre in m³ con 3 cifre rosse.",
+          "pointer_dials": "Piccoli quadranti rotondi con lancetta dopo le cifre decimali (x0,0001, x0,001, ...), letti per una risoluzione maggiore. Ogni quadrante è un decimale in più: per esempio 1 per un contatore dell'acqua in m³ con 3 rulli rossi e un quadrante x0,0001. 0 = nessuno.",
+          "initial_reading": "Il valore indicato ora dal contatore. Con questo la prima lettura viene accettata subito; senza, servono due letture coerenti."
+        }
+      }
+    },
+    "error": {
+      "too_many_decimals": "Le cifre decimali devono essere meno delle cifre del totalizzatore.",
+      "same_ai_task": "Scegli un'entità diversa, oppure nessuna."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni del contatore",
+        "data": {
+          "camera_entity": "Telecamera",
+          "light_entity": "Luce della telecamera (facoltativa)",
+          "ai_task_entity": "Entità AI Task",
+          "fallback_ai_task_entity": "Entità AI Task di riserva (facoltativa)",
+          "digits": "Cifre del totalizzatore",
+          "decimal_places": "Cifre decimali",
+          "pointer_dials": "Quadranti a lancetta",
+          "read_interval": "Intervallo di lettura",
+          "light_warmup": "Riscaldamento della luce",
+          "meter_notes": "Note sul contatore (facoltative)",
+          "notify_services": "Servizi di notifica",
+          "persistent_notification": "Notifiche persistenti"
+        },
+        "data_description": {
+          "camera_entity": "Una telecamera puntata sul totalizzatore.",
+          "light_entity": "Accesa per ogni fotogramma e spenta subito dopo, per i contatori al buio.",
+          "ai_task_entity": "Un'entità AI Task in grado di leggere immagini (per esempio Anthropic, Google Gemini, OpenAI oppure Ollama con un modello vision).",
+          "fallback_ai_task_entity": "Usata quando quella principale non è disponibile o fallisce, per esempio un modello cloud dietro uno locale.",
+          "digits": "Quante cifre deve leggere l'AI, contando gli zeri iniziali e le cifre decimali, non i quadranti a lancetta. 0 = nessun controllo.",
+          "decimal_places": "Quante delle ultime cifre stanno dopo la virgola (spesso rosse).",
+          "pointer_dials": "Piccoli quadranti rotondi con lancetta dopo le cifre decimali (x0,0001, x0,001, ...), letti per una risoluzione maggiore. Ogni quadrante è un decimale in più: per esempio 1 per un contatore dell'acqua in m³ con 3 rulli rossi e un quadrante x0,0001. 0 = nessuno.",
+          "read_interval": "Ogni quanto viene letto il contatore.",
+          "light_warmup": "Attesa tra l'accensione della luce e lo scatto. Le telecamere con esposizione automatica richiedono 20-30 s, altrimenti il fotogramma è scuro.",
+          "meter_notes": "Particolarità del totalizzatore, aggiunte alle istruzioni per l'AI. Per esempio: \"ignora l'ultima cifra su sfondo azzurro\".",
+          "notify_services": "Azioni notify che ricevono un avviso quando il contatore non si riesce a leggere più volte di fila.",
+          "persistent_notification": "Mostra l'avviso anche nelle notifiche di Home Assistant."
+        }
+      }
+    },
+    "error": {
+      "too_many_decimals": "Le cifre decimali devono essere meno delle cifre del totalizzatore.",
+      "same_ai_task": "Scegli un'entità diversa, oppure nessuna."
+    }
+  },
+  "selector": {
+    "meter_type": {
+      "options": {
+        "water": "Acqua",
+        "gas": "Gas",
+        "energy": "Elettricità o calore"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "problem": {
+        "name": "Problema"
+      },
+      "reading_in_progress": {
+        "name": "Lettura in corso"
+      }
+    },
+    "button": {
+      "read_now": {
+        "name": "Leggi ora"
+      }
+    },
+    "image": {
+      "last_frame": {
+        "name": "Ultimo fotogramma"
+      }
+    },
+    "number": {
+      "max_increase": {
+        "name": "Aumento massimo per lettura"
+      }
+    },
+    "sensor": {
+      "reading": {
+        "name": "Lettura",
+        "state_attributes": {
+          "updated_at": {
+            "name": "Aggiornata alle"
+          },
+          "pending_value": {
+            "name": "In attesa di conferma"
+          },
+          "meter_type": {
+            "name": "Tipo di contatore",
+            "state": {
+              "water": "Acqua",
+              "gas": "Gas",
+              "energy": "Elettricità o calore"
+            }
+          },
+          "digits": {
+            "name": "Cifre"
+          },
+          "decimal_places": {
+            "name": "Cifre decimali"
+          },
+          "pointer_dials": {
+            "name": "Quadranti a lancetta"
+          },
+          "camera_entity": {
+            "name": "Telecamera"
+          },
+          "light_entity": {
+            "name": "Luce della telecamera"
+          }
+        }
+      },
+      "last_result": {
+        "name": "Ultimo esito",
+        "state": {
+          "accepted": "Accettata",
+          "unconfirmed": "In attesa di conferma",
+          "decrease": "Scartata: inferiore",
+          "implausible": "Scartata: salto non plausibile",
+          "unreadable": "Non leggibile",
+          "wrong_digits": "Scartata: troppe cifre",
+          "error": "Errore",
+          "corrected": "Impostata a mano"
+        },
+        "state_attributes": {
+          "digits_read": {
+            "name": "Cifre lette"
+          },
+          "dials_read": {
+            "name": "Quadranti letti"
+          },
+          "last_wheel_rolling": {
+            "name": "Ultimo rullo tra due numeri"
+          },
+          "consecutive_failures": {
+            "name": "Errori consecutivi"
+          },
+          "ai_engine": {
+            "name": "Motore AI"
+          },
+          "last_error": {
+            "name": "Ultimo errore"
+          }
+        }
+      },
+      "confidence": {
+        "name": "Affidabilità"
+      },
+      "last_read": {
+        "name": "Ultimo tentativo di lettura"
+      },
+      "value_read": {
+        "name": "Ultimo valore letto"
+      }
+    },
+    "switch": {
+      "automatic_reading": {
+        "name": "Lettura automatica"
+      }
+    }
+  },
+  "exceptions": {
+    "no_ai": {
+      "message": "{name} non ha un'entità AI Task: aggiungila nelle opzioni."
+    },
+    "negative_reading": {
+      "message": "La lettura di un contatore non può essere negativa."
+    }
+  },
+  "services": {
+    "set_reading": {
+      "name": "Imposta lettura",
+      "description": "Imposta a mano la lettura di un contatore, per esempio dopo la sostituzione del contatore o per correggere un valore sbagliato. Le letture successive vengono verificate rispetto a questa.",
+      "fields": {
+        "value": {
+          "name": "Valore",
+          "description": "Il valore indicato dal contatore, nella sua unità."
+        }
+      }
+    }
+  }
+}
