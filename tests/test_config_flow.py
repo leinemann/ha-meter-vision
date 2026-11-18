@@ -39,7 +39,7 @@ async def test_user_flow_errors(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"meter_type": "water", "name": "Tap"})
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {**METER, "unit_of_measurement": "L", "digits": 3.0}
+        result["flow_id"], {**METER, "unit_of_measurement": "L", "digits": 3.0, "initial_reading": 12.0}
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"decimal_places": "too_many_decimals"}

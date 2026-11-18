@@ -85,13 +85,22 @@ MAX_DIALS: Final = 4
 ROLLOVER_DIAL_MAX: Final = 2
 
 # ------------------------------------------------------------ plausibility
-# A reading that grows by more than the maximum increase (scaled by the time
-# since the last accepted value) is held back and accepted only when the next
-# readings confirm it: one misread digit never reaches the statistics, while a
-# real jump (after a long camera outage, for example) is taken after a short delay.
-CONFIRMATIONS: Final = 2
+# The published reading is the median of the last WINDOW_SIZE plausible readings:
+# a misread only counts if it wins the majority. Chosen on two real days of a
+# glitching camera (tests/fixtures): seeded with the current reading, 5 and 7
+# both held the error to 17 L or less at 15-minute rounds. 5 because the median
+# trails the meter by about half the window (two rounds), and totals are the same.
+WINDOW_SIZE: Final = 5
+# Growth allowed above the reading: the maximum increase per interval, counted
+# since the last plausible reading but for at most this many intervals, so a long
+# gap doesn't open the gate indefinitely. With the default water units (0.3 m³,
+# 300 L per interval) this stays below the 1 m³ misreads of the field data; what
+# does get through still has to win the median.
+GROWTH_CAP_PERIODS: Final = 3
+# Readings agree when they are within this many steps of the last digit read.
+AGREE_STEPS: Final = 10
 # A jump larger than the maximum increase sustained for this long (or since the
-# last accepted value, if longer) is never confirmed: it needs set_reading.
+# last plausible reading, if longer) is never taken, however many readings agree.
 MAX_JUMP_SPAN: Final = timedelta(days=1)
 # Consecutive failed readings (unreadable, rejected, error) that raise a problem.
 FAILURES_FOR_PROBLEM: Final = 3

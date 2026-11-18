@@ -52,8 +52,12 @@ scripts/check.sh -k validator      # extra arguments go to pytest
 - **Readings are ranges.** `parse_reading()` returns the lowest value a frame is consistent with and a
   `tolerance` above it (one step of the last wheel or dial read). Never return a value that could be above
   the meter: a rolling wheel is read as its lower number, an unreadable last wheel as 0.
-- **The reading never decreases** except through the `set_reading` action. It is a `total_increasing`
-  sensor: a wrong value that gets in corrupts the statistics, so new rules must keep rejecting by default.
+- **The reading is the median of the last `WINDOW_SIZE` plausible readings** (`validator.py`). It can step
+  down when a misread had briefly won the majority, so the sensor is `total`, not `total_increasing`.
+  Never go back to "accept a jump once the next reading confirms it": `tests/test_field_corpus.py` replays
+  two real days of a glitching camera where that ends 1 m³ high. Any change to the validator must keep
+  that test passing; `docs/prior-art.md` records why each rule exists.
+- **The current reading is required at setup**: starting from nothing locks onto clustered misreads.
 - **No numeric bounds in the AI output schema** (some providers reject `minimum`/`maximum`): the range
   is enforced by `parse_reading()`.
 - **Unit and meter type are fixed at setup**: they define the statistics of the reading sensor.

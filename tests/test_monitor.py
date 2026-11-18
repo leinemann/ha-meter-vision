@@ -111,7 +111,8 @@ async def test_periodic_readings(hass: HomeAssistant, freezer: FrozenDateTimeFac
     assert state.state == "1250922.0"
     assert state.attributes["unit_of_measurement"] == "L"
     assert state.attributes["device_class"] == "water"
-    assert state.attributes["state_class"] == "total_increasing"
+    # total, not total_increasing: a misread that briefly won the median is subtracted again.
+    assert state.attributes["state_class"] == "total"
     assert state.attributes["camera_entity"] == "camera.meter"
 
     await _advance(hass, freezer, 1)  # first reading 30 s after start-up
@@ -122,14 +123,15 @@ async def test_periodic_readings(hass: HomeAssistant, freezer: FrozenDateTimeFac
     )
     assert "exactly 8 wheels" in ai.calls[0]["instructions"]
     assert (tmp_path / "meter_vision" / "water_meter.jpg").read_bytes().startswith(b"\xff\xd8")
-    assert _state(hass, READING) == "1250950.0"
+    assert _state(hass, "sensor.water_meter_value_read") == "1250950.0"
+    assert _state(hass, READING) == "1250922.0"  # median of the start value and one reading: the lower
     assert _state(hass, RESULT) == "accepted"
     assert _state(hass, "sensor.water_meter_confidence") == "8"
     assert _state(hass, "image.water_meter_last_frame") != "unknown"
 
     await _advance(hass, freezer, 15)
     assert len(ai.calls) == 2
-    assert _state(hass, READING) == "1251100.0"
+    assert _state(hass, READING) == "1250950.0"  # median of 1250922, 1250950, 1251100
 
 
 async def test_misreads_never_reach_the_reading(hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path) -> None:
@@ -146,6 +148,8 @@ async def test_misreads_never_reach_the_reading(hass: HomeAssistant, freezer: Fr
     assert _state(hass, READING) == "1250922.0"
     await _advance(hass, freezer, 15)
     assert _state(hass, RESULT) == "accepted"
+    assert _state(hass, "sensor.water_meter_value_read") == "1250960.0"
+    await _advance(hass, freezer, 15)
     assert _state(hass, READING) == "1250960.0"
 
 
@@ -164,17 +168,19 @@ async def test_repeated_failures_raise_a_problem(hass: HomeAssistant, freezer: F
 
     await _advance(hass, freezer, 15)
     assert _state(hass, "binary_sensor.water_meter_problem") == "off"
-    assert _state(hass, READING) == "1250930.0"
+    assert _state(hass, "sensor.water_meter_value_read") == "1250930.0"
 
 
 async def test_without_initial_reading(hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path) -> None:
+    # Entries can't be created without it any more, but stored state can be lost.
     FakeAI(hass, [answer("00012345"), answer("00012346")])
     data = {k: v for k, v in DATA.items() if k != "initial_reading"}
     await _setup(hass, tmp_path, data=data)
     assert _state(hass, READING) == "unknown"
-    await _advance(hass, freezer, 1)
-    assert _state(hass, RESULT) == "unconfirmed"
+    await _advance(hass, freezer, 1 + 15 * 3)
+    assert _state(hass, RESULT) == "unconfirmed"  # four readings: not a full window yet
     await _advance(hass, freezer, 15)
+    assert _state(hass, RESULT) == "accepted"
     assert _state(hass, READING) == "12346.0"
 
 
@@ -191,7 +197,7 @@ async def test_decimals_and_fallback(hass: HomeAssistant, freezer: FrozenDateTim
     assert hass.states.get("number.water_meter_max_increase").state == "0.3"
     await _advance(hass, freezer, 1)
     assert [c["entity_id"] for c in ai.calls] == ["ai_task.vision", "ai_task.cloud"]
-    assert _state(hass, READING) == "1250.95"
+    assert _state(hass, "sensor.water_meter_value_read") == "1250.95"
     assert hass.states.get(RESULT).attributes["ai_engine"] == "ai_task.cloud"
 
 
@@ -207,7 +213,7 @@ async def test_controls(hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp
     await hass.services.async_call("button", "press", {"entity_id": "button.water_meter_read_now"}, blocking=True)
     await hass.async_block_till_done(wait_background_tasks=True)
     assert len(ai.calls) == 1
-    assert _state(hass, READING) == "1251000.0"
+    assert _state(hass, "sensor.water_meter_value_read") == "1251000.0"
 
     await hass.services.async_call(DOMAIN, "set_reading", {"entity_id": READING, "value": 1260000}, blocking=True)
     assert _state(hass, READING) == "1260000.0"
@@ -223,9 +229,11 @@ async def test_state_survives_a_restart(hass: HomeAssistant, freezer: FrozenDate
     FakeAI(hass, [answer("01250990")])
     entry = await _setup(hass, tmp_path)
     await _advance(hass, freezer, 1)
+    window = entry.runtime_data.validator.as_dict()["window"]
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
-    assert _state(hass, READING) == "1250990.0"
+    assert entry.runtime_data.validator.as_dict()["window"] == window
+    assert [v for v, _ in window] == [1250922, 1250990]
     assert _state(hass, RESULT) == "accepted"
     assert entry.runtime_data.frame is not None
 
@@ -278,11 +286,13 @@ async def test_a_meter_with_a_pointer_dial(hass: HomeAssistant, freezer: FrozenD
     call = ai.calls[0]
     assert "dials" in call["structure"]
     assert "(x0.0001)" in call["instructions"]
-    assert _state(hass, READING) == "140.9257"
-    for expected in ("140.9259", "140.9261", "140.9261", "140.9261"):
+    assert _state(hass, "sensor.water_meter_value_read") == "140.9257"
+    for read in ("140.9259", "140.9261", "140.9251", "140.92"):
         await _advance(hass, freezer, 15)
         assert _state(hass, RESULT) == "accepted"
-        assert _state(hass, READING) == expected
+        assert _state(hass, "sensor.water_meter_value_read") == read
+    # Median of 140.9257, .9259, .9261, .9251 and the lower bound 140.920.
+    assert _state(hass, READING) == "140.9257"
     attributes = hass.states.get(RESULT).attributes
     assert attributes["digits_read"] == "0014092X"
     assert attributes["consecutive_failures"] == 0
@@ -297,10 +307,14 @@ async def test_a_jittering_last_wheel_never_raises_a_problem(
     data = {**FERRO_DATA, "pointer_dials": 0, "initial_reading": 140.925}
     await _setup(hass, tmp_path, data=data, options={**FERRO_OPTIONS, "pointer_dials": 0})
     await _advance(hass, freezer, 1)
-    for _ in range(5):
+    seen = []
+    for _ in range(8):
         await _advance(hass, freezer, 15)
         assert _state(hass, RESULT) == "accepted"
-        assert _state(hass, READING) == "140.926"
+        seen.append(float(_state(hass, READING)))
+    # Never flickers back down by the step the wheel is flipping over.
+    assert seen == sorted(seen)
+    assert set(seen) <= {140.925, 140.926}
     assert _state(hass, "binary_sensor.water_meter_problem") == "off"
     assert hass.states.get(RESULT).attributes["last_wheel_rolling"] is True
 
@@ -332,4 +346,4 @@ async def test_every_answer_style_gives_the_same_reading(
     await _setup(hass, tmp_path, data=FERRO_DATA, options=FERRO_OPTIONS)
     await _advance(hass, freezer, 1)
     assert _state(hass, RESULT) == "accepted"
-    assert _state(hass, READING) == "140.9273"
+    assert _state(hass, "sensor.water_meter_value_read") == "140.9273"

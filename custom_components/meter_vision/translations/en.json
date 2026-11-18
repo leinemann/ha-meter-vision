@@ -23,7 +23,7 @@
           "digits": "Digits of the counter",
           "decimal_places": "Decimal digits",
           "pointer_dials": "Pointer dials",
-          "initial_reading": "Current reading (optional)"
+          "initial_reading": "Current reading"
         },
         "data_description": {
           "unit_of_measurement": "The unit of the number on the counter, with the decimal digits below. It cannot be changed later.",
@@ -33,7 +33,7 @@
           "digits": "How many digits the AI must read, leading zeros and decimal digits included, pointer dials not. 0 = do not check.",
           "decimal_places": "How many of the last digits are after the decimal point (often red). For example 3 for a counter of 8 digits in m³ with 3 red ones.",
           "pointer_dials": "Small round dials with a pointer after the decimal wheels (x0.0001, x0.001, ...), read for extra resolution. Each dial is one more decimal: for example 1 for a water meter in m³ with 3 red wheels and a x0.0001 dial. 0 = none.",
-          "initial_reading": "The value shown now by the meter. With it the first reading is accepted at once; without it, two consistent readings are needed."
+          "initial_reading": "The value shown now by the meter, including the decimals and dials. The readings are checked against it from the start."
         }
       }
     },

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+from custom_components.meter_vision.const import WINDOW_SIZE
 from custom_components.meter_vision.validator import Outcome, ReadingValidator
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
@@ -18,80 +19,101 @@ def _validator(value: float = 1000) -> ReadingValidator:
     return validator
 
 
-def test_normal_growth_is_accepted() -> None:
-    validator = _validator()
-    assert validator.check(1000, _at(15), 300, INTERVAL) is Outcome.ACCEPTED
-    assert validator.check(1250, _at(30), 300, INTERVAL) is Outcome.ACCEPTED
-    assert validator.value == 1250
-    assert validator.value_at == _at(30)
+def _feed(validator: ReadingValidator, values: list[float], start: int = 1, **kwargs) -> list[Outcome]:
+    """One reading per interval, starting at interval ``start``."""
+    kwargs.setdefault("max_increase", 300)
+    kwargs.setdefault("interval", INTERVAL)
+    return [validator.check(v, _at(15 * (start + i)), **kwargs) for i, v in enumerate(values)]
 
 
-def test_a_decrease_is_rejected() -> None:
+def test_the_reading_is_the_median_of_the_plausible_readings() -> None:
+    validator = _validator(1000)
+    assert _feed(validator, [1010, 1020, 1030, 1040]) == [Outcome.ACCEPTED] * 4
+    assert validator.value == 1020  # median of 1000, 1010, 1020, 1030, 1040
+    assert validator.value_at == _at(60)
+    assert len(validator.window) == WINDOW_SIZE
+
+
+def test_the_median_never_runs_ahead_of_a_short_window() -> None:
+    validator = _validator(1000)
+    _feed(validator, [1010])
+    assert validator.value == 1000  # median_low of two: the lower one
+
+
+def test_a_large_decrease_is_rejected() -> None:
     validator = _validator()
-    assert validator.check(999, _at(15), 300, INTERVAL) is Outcome.DECREASE
+    assert _feed(validator, [600]) == [Outcome.DECREASE]
     assert validator.value == 1000
 
 
-def test_a_single_misread_digit_never_passes() -> None:
+def test_a_small_step_down_joins_the_window_and_is_outvoted() -> None:
+    # A last wheel between two numbers, read low once.
+    validator = _validator(140.926)
+    assert _feed(validator, [140.925, 140.926, 140.927], max_increase=0.3, tolerance=0.001) == [Outcome.ACCEPTED] * 3
+    assert validator.value == 140.926
+
+
+def test_a_single_misread_never_reaches_the_reading() -> None:
     validator = _validator(1250922)
-    assert validator.check(1260922, _at(15), 300, INTERVAL) is Outcome.UNCONFIRMED
-    assert validator.value == 1250922
-    assert validator.pending_value == 1260922
-    # The next reading is the real one: accepted, and the misread is forgotten.
-    assert validator.check(1250950, _at(30), 300, INTERVAL) is Outcome.ACCEPTED
-    assert validator.pending_value is None
+    outcomes = _feed(validator, [1250930, 1251122, 1250940, 1250950])  # +192 L misread, within the gate
+    assert outcomes == [Outcome.ACCEPTED] * 4
+    assert validator.value == 1250940
 
 
-def test_a_misread_repeated_every_time_is_never_confirmed() -> None:
-    # The first wheel hidden by a reflection and read as 9 on every frame.
+def test_a_repeated_misread_must_win_the_majority() -> None:
+    # The field failure of a "confirm by the next reading" validator: the same
+    # misread twice in a row was confirmed, and the reading stuck 1 m³ high.
+    validator = _validator(140.9112)
+    _feed(validator, [140.9123, 141.9116, 141.9116, 140.9166, 140.9166], max_increase=0.3, tolerance=0.0001)
+    assert validator.value < 141
+
+
+def test_growth_beyond_the_gate_is_implausible_until_a_whole_window_agrees() -> None:
+    validator = _validator(1000)
+    jump = [1900 + i for i in range(WINDOW_SIZE)]  # 900 L in one interval
+    outcomes = _feed(validator, jump)
+    assert outcomes == [Outcome.IMPLAUSIBLE] * (WINDOW_SIZE - 1) + [Outcome.ACCEPTED]
+    assert validator.value == 1902
+
+
+def test_a_plausible_reading_breaks_a_run_of_misreads() -> None:
+    validator = _validator(1000)
+    outcomes = _feed(validator, [2900, 2900, 1010, 2900, 2900, 2900, 2900])
+    assert Outcome.ACCEPTED not in outcomes[3:]
+    assert validator.value == 1000
+
+
+def test_more_than_a_day_at_the_maximum_increase_is_never_taken() -> None:
     validator = _validator(345705)
-    for minutes in (60, 120, 180):
+    for minutes in (60, 120, 180, 240, 300, 360):
         assert validator.check(9347418 + minutes, _at(minutes), 300, timedelta(hours=1)) is Outcome.IMPLAUSIBLE
     assert validator.value == 345705
     assert validator.pending_value is None
-    # Within a day's worth of maximum increase, a confirmed jump is still accepted.
-    assert validator.check(347418, _at(240), 300, timedelta(hours=1)) is Outcome.UNCONFIRMED
-    assert validator.check(347420, _at(300), 300, timedelta(hours=1)) is Outcome.ACCEPTED
 
 
-def test_the_implausible_limit_grows_after_a_long_outage() -> None:
-    validator = _validator()
-    # Ten days without an accepted value: up to ten days at the maximum increase.
-    assert validator.check(400000, _at(10 * 1440), 300, INTERVAL) is Outcome.IMPLAUSIBLE
-    assert validator.check(200000, _at(10 * 1440 + 15), 300, INTERVAL) is Outcome.ACCEPTED
+def test_the_growth_gate_is_capped() -> None:
+    validator = _validator(1000)
+    # Ten hours without a reading: still only GROWTH_CAP_PERIODS intervals' worth of growth.
+    assert validator.check(1000 + 300 * 3, _at(600), 300, INTERVAL) is Outcome.ACCEPTED
+    validator = _validator(1000)
+    assert validator.check(1000 + 300 * 4, _at(600), 300, INTERVAL) is Outcome.IMPLAUSIBLE
 
 
-def test_a_real_jump_is_accepted_once_confirmed() -> None:
-    validator = _validator()
-    # The camera was offline for a while, but only one interval passed since the last value.
-    assert validator.check(2000, _at(15), 300, INTERVAL) is Outcome.UNCONFIRMED
-    assert validator.check(2010, _at(30), 300, INTERVAL) is Outcome.ACCEPTED
-    assert validator.value == 2010
-
-
-def test_inconsistent_jumps_restart_the_confirmation() -> None:
-    validator = _validator()
-    assert validator.check(5000, _at(15), 300, INTERVAL) is Outcome.UNCONFIRMED
-    assert validator.check(9000, _at(30), 300, INTERVAL) is Outcome.UNCONFIRMED
-    assert validator.check(4000, _at(45), 300, INTERVAL) is Outcome.UNCONFIRMED  # lower than 9000: restart
-    assert validator.check(4100, _at(60), 300, INTERVAL) is Outcome.ACCEPTED
-    assert validator.value == 4100
-
-
-def test_the_allowed_increase_grows_with_the_time_elapsed() -> None:
-    validator = _validator()
-    # Two hours without readings: up to 8 intervals' worth is plausible.
-    assert validator.allowed(300, timedelta(hours=2), INTERVAL) == 2400
-    assert validator.allowed(300, timedelta(minutes=1), INTERVAL) == 300
-    assert validator.check(3300, _at(120), 300, INTERVAL) is Outcome.ACCEPTED
-
-
-def test_the_first_reading_needs_confirmation() -> None:
+def test_starting_without_a_value_needs_a_majority_of_a_full_window() -> None:
     validator = ReadingValidator()
-    assert validator.check(1000, _at(0), 300, INTERVAL) is Outcome.UNCONFIRMED
-    assert validator.value is None
-    assert validator.check(1001, _at(15), 300, INTERVAL) is Outcome.ACCEPTED
+    readings = [1000, 1900, 1001, 1002, 1003]
+    outcomes = [validator.check(v, _at(15 * i), 300, INTERVAL, tolerance=1) for i, v in enumerate(readings)]
+    assert outcomes == [Outcome.UNCONFIRMED] * 4 + [Outcome.ACCEPTED]
     assert validator.value == 1001
+    assert [p.value for p in validator.window] == [1000, 1001, 1002, 1003]
+
+
+def test_starting_without_agreement_waits() -> None:
+    validator = ReadingValidator()
+    readings = [1000, 1900, 2800, 1001, 3700]
+    outcomes = [validator.check(v, _at(15 * i), 300, INTERVAL, tolerance=1) for i, v in enumerate(readings)]
+    assert outcomes == [Outcome.UNCONFIRMED] * 5
+    assert validator.value is None
 
 
 def test_decimals_do_not_suffer_from_float_rounding() -> None:
@@ -101,11 +123,18 @@ def test_decimals_do_not_suffer_from_float_rounding() -> None:
 
 def test_round_trip() -> None:
     validator = _validator()
-    validator.check(5000, _at(15), 300, INTERVAL)
+    _feed(validator, [1010, 5000, 1020])
     restored = ReadingValidator.from_dict(validator.as_dict())
     assert restored.as_dict() == validator.as_dict()
     assert ReadingValidator.from_dict({"value": "x", "value_at": "nope"}).value is None
     assert ReadingValidator.from_dict(None).value is None
+
+
+def test_state_saved_by_0_1_0_is_restored() -> None:
+    old = {"value": 140.925, "value_at": T0.isoformat(), "pending": []}
+    validator = ReadingValidator.from_dict(old)
+    assert validator.value == 140.925
+    assert [p.value for p in validator.window] == [140.925]
 
 
 def test_failed_outcomes() -> None:
@@ -116,44 +145,3 @@ def test_failed_outcomes() -> None:
         Outcome.WRONG_DIGITS,
         Outcome.ERROR,
     }
-
-
-# ---------------------------------------------------------------- Meter Vision additions
-def test_a_wheel_between_two_numbers_is_not_a_decrease() -> None:
-    validator = _validator(140.926)
-    # Read as 140.925 on the next frame (the wheel half way to 6): consistent, kept at 140.926.
-    assert validator.check(140.925, _at(15), 0.3, INTERVAL, tolerance=0.001) is Outcome.ACCEPTED
-    assert validator.value == 140.926
-    # The allowed growth is still measured from when 140.926 was reached.
-    assert validator.value_at == T0
-    assert validator.check(140.927, _at(30), 0.3, INTERVAL, tolerance=0.001) is Outcome.ACCEPTED
-    assert validator.value == 140.927
-
-
-def test_more_than_the_tolerance_below_is_still_a_decrease() -> None:
-    validator = _validator(140.926)
-    assert validator.check(140.924, _at(15), 0.3, INTERVAL, tolerance=0.001) is Outcome.DECREASE
-    assert validator.value == 140.926
-
-
-def test_an_unknown_last_wheel_keeps_the_value_within_ten_steps() -> None:
-    validator = _validator(140.929)
-    assert validator.check(140.92, _at(15), 0.3, INTERVAL, tolerance=0.01) is Outcome.ACCEPTED
-    assert validator.value == 140.929
-    # A lower bound above the accepted value moves it up, never past the meter.
-    assert validator.check(140.93, _at(30), 0.3, INTERVAL, tolerance=0.01) is Outcome.ACCEPTED
-    assert validator.value == 140.93
-
-
-def test_confirmation_tolerates_a_rolling_wheel() -> None:
-    validator = ReadingValidator()
-    assert validator.check(140.926, _at(0), 0.3, INTERVAL, tolerance=0.001) is Outcome.UNCONFIRMED
-    assert validator.check(140.925, _at(15), 0.3, INTERVAL, tolerance=0.001) is Outcome.ACCEPTED
-
-
-def test_a_whole_frame_misread_is_rejected_with_any_tolerance() -> None:
-    # Misreads seen from an AI-on-the-Edge device on this kind of meter: 1139.93 and 11140.93 m³.
-    validator = _validator(140.925)
-    for minutes, misread in ((15, 1139.93), (30, 11140.93), (45, 1139.93)):
-        assert validator.check(misread, _at(minutes), 0.3, INTERVAL, tolerance=0.001) is Outcome.IMPLAUSIBLE
-    assert validator.value == 140.925

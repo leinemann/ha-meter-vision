@@ -13,8 +13,9 @@ It is distributed under the same licence (see [`LICENSE`](LICENSE)).
   and is told never to mark such a wheel unreadable. Readings carry a tolerance. An unreadable last
   wheel alone gives a lower bound instead of a rejected frame. Optional pointer dials
   (`pointer_dials` option) add decimals and widen the range of a rolling last wheel.
-- `validator.py`: a reading lower than the accepted value but within its own tolerance keeps the
-  accepted value instead of counting as a decrease.
+- `validator.py` (0.2.0): rewritten. The published reading is the median of a window of plausible
+  readings, with a capped growth gate, instead of the last reading confirmed by the next one; the reading
+  sensor is `total` instead of `total_increasing`; the current reading is required at setup.
 - `monitor.py`, `config_flow.py`, `sensor.py`, `number.py`, translations and card: the pointer-dial
   option, the precision it adds, and the new attributes.
 - New tests for the above; documentation rewritten, with a setup guide in `docs/`.

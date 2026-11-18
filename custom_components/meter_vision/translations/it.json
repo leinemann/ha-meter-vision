@@ -23,7 +23,7 @@
           "digits": "Cifre del totalizzatore",
           "decimal_places": "Cifre decimali",
           "pointer_dials": "Quadranti a lancetta",
-          "initial_reading": "Lettura attuale (facoltativa)"
+          "initial_reading": "Lettura attuale"
         },
         "data_description": {
           "unit_of_measurement": "L'unità del numero sul totalizzatore, considerando le cifre decimali indicate sotto. Non si può cambiare in seguito.",
@@ -33,7 +33,7 @@
           "digits": "Quante cifre deve leggere l'AI, contando gli zeri iniziali e le cifre decimali, non i quadranti a lancetta. 0 = nessun controllo.",
           "decimal_places": "Quante delle ultime cifre stanno dopo la virgola (spesso rosse). Per esempio 3 per un totalizzatore a 8 cifre in m³ con 3 cifre rosse.",
           "pointer_dials": "Piccoli quadranti rotondi con lancetta dopo le cifre decimali (x0,0001, x0,001, ...), letti per una risoluzione maggiore. Ogni quadrante è un decimale in più: per esempio 1 per un contatore dell'acqua in m³ con 3 rulli rossi e un quadrante x0,0001. 0 = nessuno.",
-          "initial_reading": "Il valore indicato ora dal contatore. Con questo la prima lettura viene accettata subito; senza, servono due letture coerenti."
+          "initial_reading": "Il valore indicato ora dal contatore, decimali e quadranti compresi. Le letture vengono confrontate con questo fin dall'inizio."
         }
       }
     },

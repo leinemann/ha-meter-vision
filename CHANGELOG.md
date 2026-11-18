@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
+### Changed
+
+- **The reading is now the median of the last 5 plausible readings**, not the last reading confirmed by
+  the next one. A camera repeats its misreads, so a repeat confirmed them: replayed on two real days of a
+  glitching water-meter camera, the old rule ended 1,031 L too high, with 80 true readings rejected as
+  decreases. The median keeps the error at 0 L (5-minute rounds) to 17 L (15-minute rounds). The replay
+  is a test now (`tests/test_field_corpus.py`).
+- A reading above the growth gate (at most three intervals of the maximum increase) is `implausible`
+  unless 5 readings in a row agree on it. `unconfirmed` now only means "no value yet".
+- The reading sensor is `total` instead of `total_increasing`: the median can step back when a misread
+  had briefly won, and that correction is subtracted instead of counted as a meter reset. Long-term
+  statistics of an existing sensor carry on; Home Assistant may ask to confirm the state class change.
+- The current reading is required when adding a meter.
+
+### Added
+
+- `docs/prior-art.md`: what users hit with AI-on-the-Edge and ha-ai-meter-reader, and what Meter Vision
+  does about each.
+- Setup guide: Claude, OpenAI, Kimi through OpenRouter, Gemini and a local Qwen vision model through
+  Ollama as equal providers, and how to compare them on your own meter.
+
 ## [0.1.0] - 2026-11-18
 
 First release of Meter Vision, a fork of
