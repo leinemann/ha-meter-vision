@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import timedelta
+from io import BytesIO
 from itertools import count
 from typing import Any
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.camera import Image
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
+from PIL import Image as PILImage
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -386,3 +388,158 @@ async def test_unreadable_saved_state_falls_back_to_the_setup_reading(
     }
     await _setup(hass, tmp_path, entry=entry)
     assert _state(hass, READING) == "1250922.0"
+
+
+# ------------------------------------------------------------ annotated frame
+def _jpeg(n: int) -> bytes:
+    """A real 640×480 JPEG, a little different each time (a frozen camera is an error)."""
+    out = BytesIO()
+    PILImage.new("RGB", (640, 480), (100 + 9 * (n % 10), 120, 120)).save(out, "JPEG", quality=95)
+    return out.getvalue()
+
+
+@pytest.fixture
+def real_frames(_fast):
+    frames = (Image("image/jpeg", _jpeg(n)) for n in count())
+    _fast.side_effect = lambda *a, **k: next(frames)
+
+
+async def _picture(hass: HomeAssistant, client, entity_id: str) -> bytes:
+    response = await client.get(hass.states.get(entity_id).attributes["entity_picture"])
+    assert response.status == 200
+    return await response.read()
+
+
+REGIONS = {"counter_region": "192, 158, 296, 50", "dial_regions": "430,288,104,104"}
+LAST, RAW = "image.water_meter_last_frame", "image.water_meter_raw_frame"
+
+
+@pytest.mark.usefixtures("real_frames")
+async def test_the_dashboard_frame_shows_what_was_read(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_client
+) -> None:
+    during: list[str] = []
+
+    def answer_and_look(_call: ServiceCall) -> dict[str, Any]:
+        during.append(hass.states.get(LAST).attributes["entity_picture"])  # frame taken, not drawn yet
+        return ferro("00140925", "3")
+
+    FakeAI(hass, [answer_and_look])
+    entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
+    await _advance(hass, freezer, 1)
+    client = await hass_client()
+    # A browser that loaded the frame during the reading is sent to the drawing after it.
+    assert hass.states.get(LAST).attributes["entity_picture"] != during[0]
+
+    sent = (tmp_path / "meter_vision" / "water_meter.jpg").read_bytes()
+    raw, shown = await _picture(hass, client, RAW), await _picture(hass, client, LAST)
+    assert raw == sent  # the clean frame is exactly the one the model was given
+    assert shown != sent
+    assert PILImage.open(BytesIO(shown)).size == (640, 480)
+    note = entry.runtime_data.annotation
+    assert (note.outcome, note.digits, note.dials, note.value) == ("accepted", "00140925", "3", "140.9251 m³")
+    # The first digit box is drawn green (confident) on the grey frame.
+    r, g, _b = PILImage.open(BytesIO(shown)).convert("RGB").getpixel((192 + 18, 158 + 49))
+    assert g > 150 and r < 100
+
+
+@pytest.mark.usefixtures("real_frames")
+async def test_a_new_region_redraws_the_last_frame_without_reading_again(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_client
+) -> None:
+    ai = FakeAI(hass, [ferro("00140925", "3")])
+    entry = await _setup(hass, tmp_path, data=FERRO_DATA, options=FERRO_OPTIONS)
+    await _advance(hass, freezer, 1)
+    client = await hass_client()
+    before = await _picture(hass, client, LAST)
+
+    hass.config_entries.async_update_entry(entry, options={**FERRO_OPTIONS, **REGIONS})
+    await hass.async_block_till_done()
+    after = await _picture(hass, client, LAST)
+    assert len(ai.calls) == 1
+    assert after not in (before, await _picture(hass, client, RAW))  # same frame and reading, now with the boxes
+    assert entry.runtime_data.annotation.digits == "00140925"
+
+
+async def test_a_frame_pillow_cannot_open_is_shown_as_it_is(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_client, caplog
+) -> None:
+    FakeAI(hass, [ferro("00140925", "3")])
+    await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
+    await _advance(hass, freezer, 1)
+    client = await hass_client()
+    assert await _picture(hass, client, LAST) == await _picture(hass, client, RAW)
+    assert "could not draw the annotated frame" in caplog.text
+    assert _state(hass, RESULT) == "accepted"  # the reading itself is unaffected
+
+
+@pytest.mark.usefixtures("real_frames")
+async def test_a_failed_ai_call_is_drawn_as_an_error_on_the_new_frame(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path
+) -> None:
+    FakeAI(hass, [ferro("00140925", "3"), HomeAssistantError("model offline")])
+    entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
+    await _advance(hass, freezer, 1)
+    first = entry.runtime_data.annotated
+    await _advance(hass, freezer, 15)
+    note = entry.runtime_data.annotation
+    assert (note.outcome, note.digits) == ("error", None)  # not the digits of the previous frame
+    assert entry.runtime_data.annotated != first
+
+
+@pytest.mark.usefixtures("real_frames")
+@pytest.mark.parametrize("failure", ["offline", "frozen", "timeout"])
+async def test_a_camera_failure_leaves_the_last_frame_alone(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, _fast, failure: str
+) -> None:
+    FakeAI(hass, [ferro("00140925", "3")])
+    entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
+    await _advance(hass, freezer, 1)
+    shown = entry.runtime_data.annotated
+    if failure == "offline":
+        hass.states.async_set("camera.meter", "unavailable")
+    elif failure == "frozen":
+        _fast.side_effect = lambda *a, **k: Image("image/jpeg", entry.runtime_data.frame)
+    else:
+        _fast.side_effect = HomeAssistantError("snapshot timed out")
+    await _advance(hass, freezer, 15)
+    assert _state(hass, RESULT) == "error"
+    assert entry.runtime_data.annotated == shown  # the old frame isn't relabelled with a newer outcome
+    assert entry.runtime_data.annotation.outcome == "accepted"
+
+
+@pytest.mark.usefixtures("real_frames")
+async def test_after_a_restart_the_annotation_comes_back_on_its_own_frame(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_client
+) -> None:
+    FakeAI(hass, [ferro("00140925", "3")])
+    entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
+    await _advance(hass, freezer, 1)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    client = await hass_client()
+    assert entry.runtime_data.annotation.digits == "00140925"
+    assert await _picture(hass, client, LAST) != await _picture(hass, client, RAW)
+
+
+@pytest.mark.usefixtures("real_frames")
+@pytest.mark.parametrize("frame_file", ["newer", "missing"])
+async def test_a_restart_between_capture_and_answer_shows_the_frame_clean(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_client, frame_file: str
+) -> None:
+    FakeAI(hass, [ferro("00140925", "3")])
+    entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
+    await _advance(hass, freezer, 1)
+    # Home Assistant stops after the next capture wrote its frame, before the answer saved the store.
+    path = tmp_path / "meter_vision" / "water_meter.jpg"
+    if frame_file == "newer":
+        path.write_bytes(_jpeg(7))
+    else:
+        path.unlink()
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.annotation is None  # the old digits are not drawn on a frame that never gave them
+    assert entry.runtime_data.annotated is None
+    if frame_file == "newer":
+        client = await hass_client()
+        assert await _picture(hass, client, LAST) == _jpeg(7)

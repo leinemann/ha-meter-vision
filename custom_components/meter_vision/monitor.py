@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Based on monitor.py of ha-ai-meter-reader v1.0.1 (https://github.com/artech-lab/ha-ai-meter-reader).
-# Modified for Meter Vision: pointer dials, reading tolerance, extra state persisted.
+# Modified for Meter Vision: pointer dials, reading tolerance, extra state persisted, annotated frame.
 """MeterMonitor: timer → light and camera frame → AI Task → validation → reading.
 
 The monitor owns every piece of state; entities only read it. The prompt and
@@ -15,6 +15,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -29,12 +30,15 @@ from homeassistant.helpers.event import async_call_later, async_track_time_inter
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util, slugify
 
+from .annotate import Annotation, Region, annotate, parse_region, parse_regions
 from .const import (
     AI_TIMEOUT_S,
     CONF_AI_TASK,
     CONF_AI_TASK_FALLBACK,
     CONF_CAMERA,
+    CONF_COUNTER_REGION,
     CONF_DECIMALS,
+    CONF_DIAL_REGIONS,
     CONF_DIALS,
     CONF_DIGITS,
     CONF_INITIAL_READING,
@@ -94,6 +98,11 @@ class MeterMonitor:
         self.reading = False
         self.frame: bytes | None = None
         self.frame_at: datetime | None = None
+        # The frame drawn with what it gave (image entity "last frame"); None: show the frame as it is.
+        self.annotation: Annotation | None = None
+        self._annotated_frame: str | None = None  # sha256 of the frame the annotation belongs to
+        self.annotated: bytes | None = None
+        self.annotated_at: datetime | None = None
         self._lock = asyncio.Lock()
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -143,6 +152,23 @@ class MeterMonitor:
     def precision(self) -> int:
         """Decimals of the reading: the decimal wheels plus the dials."""
         return self.decimals + self.dials
+
+    @property
+    def counter_region(self) -> Region | None:
+        """Where the counter is in the frame, for the annotated frame."""
+        text = (self.config.get(CONF_COUNTER_REGION) or "").strip()
+        try:
+            return parse_region(text) if text else None
+        except ValueError:  # the options flow validates; anything else is ignored, not fatal
+            return None
+
+    @property
+    def dial_regions(self) -> list[Region]:
+        """Where the pointer dials are in the frame, largest factor first."""
+        try:
+            return parse_regions(self.config.get(CONF_DIAL_REGIONS))
+        except ValueError:
+            return []
 
     @property
     def interval(self) -> timedelta:
@@ -210,6 +236,14 @@ class MeterMonitor:
         self.last_engine = data.get("last_engine")
         if (path := self._frame_path) is not None:
             self.frame, self.frame_at = await self.hass.async_add_executor_job(_read_frame, path)
+        # Drawn again rather than stored: a changed region shows on the last frame at once.
+        # The frame file is written at capture, the store after the answer: a restart in
+        # between leaves a new frame with the previous frame's annotation. Only a matching
+        # digest proves they belong together; otherwise the frame is shown clean.
+        if self.frame is not None and data.get("annotation_frame") == _digest(self.frame):
+            self.annotation = Annotation.from_dict(data.get("annotation"))
+            self._annotated_frame = data["annotation_frame"]
+        await self._async_draw()
 
     def _data(self) -> dict[str, Any]:
         last = None
@@ -232,6 +266,8 @@ class MeterMonitor:
             "last_reading": last,
             "last_attempt": self.last_attempt.isoformat() if self.last_attempt else None,
             "last_engine": self.last_engine,
+            "annotation": self.annotation.as_dict() if self.annotation else None,
+            "annotation_frame": self._annotated_frame if self.annotation else None,
         }
 
     @callback
@@ -314,6 +350,7 @@ class MeterMonitor:
             self.reading = True
             self._notify_entities()
             result: Reading | None = None
+            frame_before = self.frame_at
             try:
                 instructions = build_instructions(
                     self.meter_type, self.digits, self.decimals, self.config.get(CONF_METER_NOTES, ""), self.dials
@@ -331,6 +368,11 @@ class MeterMonitor:
             finally:
                 self.reading = False
             outcome = self._record(result)
+            if self.frame_at != frame_before:
+                # Only a frame taken by this reading is labelled with its outcome.
+                self.annotation = self._note(result, outcome)
+                self._annotated_frame = _digest(self.frame) if self.frame else None
+                await self._async_draw()
             self._save()
             self._notify_entities()
             return outcome
@@ -365,6 +407,33 @@ class MeterMonitor:
         elif outcome is Outcome.ACCEPTED:
             self._clear_problem()
         return outcome
+
+    def _note(self, result: Reading | None, outcome: Outcome) -> Annotation:
+        assert self.frame_at is not None
+        return Annotation(
+            outcome=outcome.value,
+            at=dt_util.as_local(self.frame_at).strftime("%Y-%m-%d %H:%M:%S"),
+            digits=result.digits if result else None,
+            dials=result.dials if result else None,
+            confidence=result.confidence if result else None,
+            rolling=bool(result and result.rolling),
+            value=f"{self.value:.{self.precision}f} {self.unit}" if self.value is not None else None,
+        )
+
+    async def _async_draw(self) -> None:
+        """Draw the annotation on the last frame. A failure only costs the drawing, never the reading."""
+        annotated = None
+        if self.frame is not None and self.annotation is not None:
+            try:
+                annotated = await self.hass.async_add_executor_job(
+                    annotate, self.frame, self.counter_region, self.dial_regions, self.digits, self.annotation
+                )
+            except ValueError as err:
+                _LOGGER.warning("%s: could not draw the annotated frame: %s", self.entry.title, err)
+            except Exception:  # Pillow raises many types; the raw frame is still served
+                _LOGGER.exception("%s: could not draw the annotated frame", self.entry.title)
+        self.annotated = annotated
+        self.annotated_at = dt_util.utcnow() if annotated else None
 
     @asynccontextmanager
     async def _light_on(self) -> AsyncIterator[None]:
@@ -471,7 +540,14 @@ class MeterMonitor:
             "ai_entities": self.ai_entities,
             "frame_bytes": len(self.frame) if self.frame else 0,
             "frame_at": self.frame_at.isoformat() if self.frame_at else None,
+            "annotated_bytes": len(self.annotated) if self.annotated else 0,
+            "counter_region": self.config.get(CONF_COUNTER_REGION),
+            "dial_regions": self.config.get(CONF_DIAL_REGIONS),
         }
+
+
+def _digest(frame: bytes) -> str:
+    return hashlib.sha256(frame).hexdigest()
 
 
 def _read_frame(path: Path) -> tuple[bytes | None, datetime | None]:

@@ -13,11 +13,14 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 import voluptuous as vol
 
+from .annotate import parse_region, parse_regions
 from .const import (
     CONF_AI_TASK,
     CONF_AI_TASK_FALLBACK,
     CONF_CAMERA,
+    CONF_COUNTER_REGION,
     CONF_DECIMALS,
+    CONF_DIAL_REGIONS,
     CONF_DIALS,
     CONF_DIGITS,
     CONF_INITIAL_READING,
@@ -85,6 +88,21 @@ def _validate(user_input: dict[str, Any]) -> dict[str, str]:
         errors[CONF_DECIMALS] = "too_many_decimals"
     if user_input.get(CONF_AI_TASK) and user_input.get(CONF_AI_TASK) == user_input.get(CONF_AI_TASK_FALLBACK):
         errors[CONF_AI_TASK_FALLBACK] = "same_ai_task"
+    if counter := (user_input.get(CONF_COUNTER_REGION) or "").strip():
+        try:
+            region = parse_region(counter)
+        except ValueError:
+            errors[CONF_COUNTER_REGION] = "invalid_region"
+        else:
+            if region.width < digits:  # at least one pixel per wheel
+                errors[CONF_COUNTER_REGION] = "region_too_narrow"
+    try:
+        dials = parse_regions(user_input.get(CONF_DIAL_REGIONS))
+    except ValueError:
+        errors[CONF_DIAL_REGIONS] = "invalid_region"
+    else:
+        if dials and len(dials) != int(user_input.get(CONF_DIALS) or 0):
+            errors[CONF_DIAL_REGIONS] = "dial_regions_count"
     return errors
 
 
@@ -176,7 +194,8 @@ class MeterReaderOptionsFlow(OptionsFlow):
             # An optional entity removed in the form must be cleared explicitly.
             for key in (CONF_LIGHT, CONF_AI_TASK_FALLBACK):
                 user_input.setdefault(key, None)
-            user_input.setdefault(CONF_METER_NOTES, "")
+            for key in (CONF_METER_NOTES, CONF_COUNTER_REGION, CONF_DIAL_REGIONS):
+                user_input[key] = (user_input.get(key) or "").strip()
             return self.async_create_entry(data=_integers(user_input))
 
         current = {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
@@ -191,6 +210,12 @@ class MeterReaderOptionsFlow(OptionsFlow):
                 ),
                 vol.Optional(CONF_METER_NOTES, description=_suggested(current, CONF_METER_NOTES)): (
                     selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+                ),
+                vol.Optional(CONF_COUNTER_REGION, description=_suggested(current, CONF_COUNTER_REGION)): (
+                    selector.TextSelector()
+                ),
+                vol.Optional(CONF_DIAL_REGIONS, description=_suggested(current, CONF_DIAL_REGIONS)): (
+                    selector.TextSelector()
                 ),
                 vol.Optional(
                     CONF_NOTIFY_SERVICES, default=current.get(CONF_NOTIFY_SERVICES, [])

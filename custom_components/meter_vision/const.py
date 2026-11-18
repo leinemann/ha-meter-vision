@@ -68,6 +68,10 @@ CONF_LIGHT_WARMUP: Final = "light_warmup"
 CONF_METER_NOTES: Final = "meter_notes"
 CONF_NOTIFY_SERVICES: Final = "notify_services"
 CONF_PERSISTENT_NOTIFICATION: Final = "persistent_notification"
+# Where the counter and the dials are in the frame, in pixels ("x, y, width, height"; dials separated by ";").
+# Only for the annotated frame: the model always gets the whole frame.
+CONF_COUNTER_REGION: Final = "counter_region"
+CONF_DIAL_REGIONS: Final = "dial_regions"
 
 DEFAULT_DIGITS: Final = 0  # 0 = do not check how many digits were read
 DEFAULT_DECIMALS: Final = 0

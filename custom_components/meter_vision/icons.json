@@ -22,6 +22,9 @@
     "image": {
       "last_frame": {
         "default": "mdi:image-search-outline"
+      },
+      "raw_frame": {
+        "default": "mdi:image-outline"
       }
     },
     "number": {

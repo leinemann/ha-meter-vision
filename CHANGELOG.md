@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
+### Added
+
+- **Annotated last frame.** The *Last frame* image now shows what the model read: a banner with the
+  result, the reading, the time and the digits read, and, with the new *Counter position* and *Dial
+  positions* options, one box per wheel with its digit (coloured by confidence, unreadable digits crossed
+  out in red) and a circle per dial. The boxes are equal slices of the counter position, not coordinates
+  from the model, so they work with every provider. Drawn with Pillow, which ships with Home Assistant.
+- *Frame sent to the AI* (`image.<name>_raw_frame`, diagnostic): the clean frame, for debugging and for
+  building test sets.
+- Changing the positions redraws the last frame at once, without a new reading.
+
 ## [0.2.0] - 2026-11-18
 
 ### Changed

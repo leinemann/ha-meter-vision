@@ -57,6 +57,8 @@
           "read_interval": "Intervallo di lettura",
           "light_warmup": "Riscaldamento della luce",
           "meter_notes": "Note sul contatore (facoltative)",
+          "counter_region": "Posizione del contatore (facoltativo)",
+          "dial_regions": "Posizione dei quadranti (facoltativo)",
           "notify_services": "Servizi di notifica",
           "persistent_notification": "Notifiche persistenti"
         },
@@ -71,6 +73,8 @@
           "read_interval": "Ogni quanto viene letto il contatore.",
           "light_warmup": "Attesa tra l'accensione della luce e lo scatto. Le telecamere con esposizione automatica richiedono 20-30 s, altrimenti il fotogramma è scuro.",
           "meter_notes": "Particolarità del totalizzatore, aggiunte alle istruzioni per l'AI. Per esempio: \"ignora l'ultima cifra su sfondo azzurro\".",
+          "counter_region": "Dove si trova la fila di rulli nell'immagine, in pixel: x, y, larghezza, altezza (per esempio 192, 158, 296, 50). Serve solo a disegnare un riquadro per rullo sull'ultimo fotogramma, con la cifra letta; all'IA arriva sempre il fotogramma intero. Ricava i numeri dal fotogramma pulito (\"Fotogramma inviato all'IA\") con un qualsiasi editor di immagini.",
+          "dial_regions": "Lo stesso per ogni quadrante a lancetta, separati da ; (per esempio 430, 288, 104, 104). Uno per quadrante, oppure vuoto.",
           "notify_services": "Azioni notify che ricevono un avviso quando il contatore non si riesce a leggere più volte di fila.",
           "persistent_notification": "Mostra l'avviso anche nelle notifiche di Home Assistant."
         }
@@ -78,7 +82,10 @@
     },
     "error": {
       "too_many_decimals": "Le cifre decimali devono essere meno delle cifre del totalizzatore.",
-      "same_ai_task": "Scegli un'entità diversa, oppure nessuna."
+      "same_ai_task": "Scegli un'entità diversa, oppure nessuna.",
+      "invalid_region": "Scrivi quattro numeri interi: x, y, larghezza, altezza (larghezza e altezza maggiori di 0).",
+      "dial_regions_count": "Indica una posizione per ogni quadrante a lancetta, oppure nessuna.",
+      "region_too_narrow": "La posizione del contatore deve essere larga almeno un pixel per cifra: controlla la larghezza."
     }
   },
   "selector": {
@@ -107,6 +114,9 @@
     "image": {
       "last_frame": {
         "name": "Ultimo fotogramma"
+      },
+      "raw_frame": {
+        "name": "Fotogramma inviato all'IA"
       }
     },
     "number": {

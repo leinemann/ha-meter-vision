@@ -95,6 +95,11 @@ independent, and comparing them for a week is a good way to build trust before y
 dashboard over. If a capture ever times out because the device is busy with its own round, give its round
 a longer interval.
 
+Use `/capture_with_flashlight`, not the device's stored images (`/img_tmp/raw.jpg` and the like): fetched
+while the device is in the middle of its own round, `raw.jpg` has come back as a completely black frame.
+Meter Vision draws its own [annotated frame](#5-the-annotated-frame), so nothing else of the device is
+needed.
+
 ### Option C: any other camera
 
 An IP camera, a Reolink or UniFi camera already pointed at the meter room, an old phone with an IP-webcam
@@ -240,8 +245,9 @@ meter is something only the side-by-side comparison above can tell.
 
 ## 4. Mounting: glare and spiders
 
-Most bad readings are bad frames, and most bad frames come from mounting. The *Last frame* image shows
-exactly what the model saw: check it after mounting and again after a week.
+Most bad readings are bad frames, and most bad frames come from mounting. The *Frame sent to the AI*
+image shows exactly what the model saw, and the *Last frame* what it read
+([annotated](#5-the-annotated-frame)): check them after mounting and again after a week.
 
 **Distance and framing**
 
@@ -278,3 +284,37 @@ exactly what the model saw: check it after mounting and again after a week.
 - Describe anything unusual in *Notes about the meter*, for example "the counter is upside down" or
   "ignore the black wheel on the far left, it is a test digit".
 - A wrong value that slipped in before you set things up: fix it with `meter_vision.set_reading`.
+
+---
+
+## 5. The annotated frame
+
+The *Last frame* image (and the card) shows the frame the model was given, with what it made of it:
+
+- a banner on top: the result (`ACCEPTED`, `IMPLAUSIBLE`, `UNREADABLE`, …), the published reading after
+  it, the time of the frame, and the digits and dials the model read with its confidence;
+- one box per wheel with the digit read above it, once you give the counter position. The model gives one
+  confidence for the whole reading, so every box has its colour: green from 7, amber from 4, red below.
+  A wheel it marked unreadable is red and crossed out. A rolling last wheel is labelled `5/6`. If the
+  model read a different number of digits than the counter has, every box is red;
+- a circle on each pointer dial with the digit read, once you give the dial positions.
+
+The boxes are the counter position cut into equal slices, one per wheel (*Digits of the counter*), not
+positions returned by the model. That works the same with every provider, local models included, and
+never moves between readings. The model always gets the whole frame; the positions are only for the
+drawing.
+
+**Finding the positions.** Open the *Frame sent to the AI* image (a diagnostic entity of the device), save
+it, and open it in any image editor that shows the pointer position in pixels (GIMP, Paint, Preview's
+inspector, or an online one). Note the top-left corner of the row of wheels and its width and height, and
+type them as `x, y, width, height` in *Configure → Counter position*, for example `192, 158, 296, 50`.
+Include all wheels, the red ones too, and no frame around them, so each slice falls on one wheel. Do the
+same for each pointer dial, separated by `;`, largest factor first.
+
+Saving the options redraws the last frame straight away, without a new reading, so you can adjust the
+numbers until the boxes sit on the wheels. If the camera moves, the boxes no longer fit: the reading
+doesn't depend on them, but it is a sign to fix the mount.
+
+The drawing never affects the reading. If a frame can't be drawn (a camera that sends something other
+than a JPEG or PNG), the clean frame is shown instead and a warning is logged.
+

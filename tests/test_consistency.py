@@ -9,7 +9,7 @@ from homeassistant.components.sensor.const import DEVICE_CLASS_UNITS
 from custom_components.meter_vision.binary_sensor import BINARY_SENSORS
 from custom_components.meter_vision.button import READ_NOW
 from custom_components.meter_vision.const import UNITS, MeterType
-from custom_components.meter_vision.image import LAST_FRAME
+from custom_components.meter_vision.image import LAST_FRAME, RAW_FRAME
 from custom_components.meter_vision.messages import MESSAGES, NO_VALUE, REASONS
 from custom_components.meter_vision.number import MAX_INCREASE
 from custom_components.meter_vision.sensor import DEVICE_CLASSES, SENSORS
@@ -22,7 +22,7 @@ PLATFORM_KEYS = {
     "sensor": {d.key for d in SENSORS},
     "binary_sensor": {d.key for d in BINARY_SENSORS},
     "button": {READ_NOW.key},
-    "image": {LAST_FRAME.key},
+    "image": {LAST_FRAME.key, RAW_FRAME.key},
     "number": {MAX_INCREASE.key},
     "switch": {AUTOMATIC_READING.key},
 }
