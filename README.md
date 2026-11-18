@@ -51,6 +51,10 @@ two numbers can turn `140.925 m³` into `1139.93` or `11140.93`, and once such a
 timer → (light on, warm-up) → frame → (light off) → AI Task: "copy the digits" → checks → reading
 ```
 
+<img src="images/annotated-frame.jpg" alt="The last frame as Meter Vision draws it: a box per wheel with the digit the model read, amber for confidence 6, the rolling last wheel labelled 7/8, and the result on top" width="640">
+
+*A real frame from a pool water meter, as Meter Vision draws it (serial number blurred).*
+
 - **Reading.** At every interval (15 minutes by default) the integration takes one frame and asks your
   AI Task entity to copy the wheels, from left to right. The model marks any wheel it cannot read with `X`,
   says whether the last wheel is between two numbers, reads the pointer dials if you have them and rates

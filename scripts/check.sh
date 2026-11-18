@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Every check CI runs, in one command: lint, format, card syntax, tests.
+# Every check CI runs, in one command: lint, format, types, card syntax, tests with coverage.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,7 +16,8 @@ PY
 
 ruff check .
 ruff format --check .
+mypy
 # The card is an ES module: check its syntax as one.
 cp custom_components/meter_vision/frontend/meter-vision-card.js "${TMPDIR:-/tmp}/meter-vision-card.mjs"
 node --check "${TMPDIR:-/tmp}/meter-vision-card.mjs"
-pytest -q "$@"
+pytest -q --cov --cov-report=term "$@"

@@ -160,7 +160,7 @@ def _draw_counter(
         if digit:
             rolling = note.rolling and n == len(boxes) - 1 and digit.isdigit()
             text = f"{digit}/{(int(digit) + 1) % 10}" if rolling else digit
-            size = font.size if isinstance(font, ImageFont.FreeTypeFont) else 10
+            size = int(font.size) if isinstance(font, ImageFont.FreeTypeFont) else 10
             above = box.y - size // 2 - line * 2
             y = above if above - size // 2 > 0 else box.y + box.height + size // 2 + line * 2
             _label(draw, (box.x + box.width // 2, y), text, colour, font)
@@ -175,7 +175,7 @@ def _draw_dials(draw: ImageDraw.ImageDraw, dials: Sequence[Region], note: Annota
         colour = RED if not digit.isdigit() else _confidence_colour(note.confidence)
         draw.ellipse(dial.corners, outline=colour, width=line)
         if digit:
-            size = font.size if isinstance(font, ImageFont.FreeTypeFont) else 10
+            size = int(font.size) if isinstance(font, ImageFont.FreeTypeFont) else 10
             _label(draw, (dial.x + dial.width // 2, max(size // 2, dial.y - size // 2 - line * 2)), digit, colour, font)
 
 
