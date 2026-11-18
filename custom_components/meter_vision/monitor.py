@@ -15,6 +15,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -99,6 +100,7 @@ class MeterMonitor:
         self.frame_at: datetime | None = None
         # The frame drawn with what it gave (image entity "last frame"); None: show the frame as it is.
         self.annotation: Annotation | None = None
+        self._annotated_frame: str | None = None  # sha256 of the frame the annotation belongs to
         self.annotated: bytes | None = None
         self.annotated_at: datetime | None = None
         self._lock = asyncio.Lock()
@@ -235,7 +237,12 @@ class MeterMonitor:
         if (path := self._frame_path) is not None:
             self.frame, self.frame_at = await self.hass.async_add_executor_job(_read_frame, path)
         # Drawn again rather than stored: a changed region shows on the last frame at once.
-        self.annotation = Annotation.from_dict(data.get("annotation")) if self.frame else None
+        # The frame file is written at capture, the store after the answer: a restart in
+        # between leaves a new frame with the previous frame's annotation. Only a matching
+        # digest proves they belong together; otherwise the frame is shown clean.
+        if self.frame is not None and data.get("annotation_frame") == _digest(self.frame):
+            self.annotation = Annotation.from_dict(data.get("annotation"))
+            self._annotated_frame = data["annotation_frame"]
         await self._async_draw()
 
     def _data(self) -> dict[str, Any]:
@@ -260,6 +267,7 @@ class MeterMonitor:
             "last_attempt": self.last_attempt.isoformat() if self.last_attempt else None,
             "last_engine": self.last_engine,
             "annotation": self.annotation.as_dict() if self.annotation else None,
+            "annotation_frame": self._annotated_frame if self.annotation else None,
         }
 
     @callback
@@ -363,6 +371,7 @@ class MeterMonitor:
             if self.frame_at != frame_before:
                 # Only a frame taken by this reading is labelled with its outcome.
                 self.annotation = self._note(result, outcome)
+                self._annotated_frame = _digest(self.frame) if self.frame else None
                 await self._async_draw()
             self._save()
             self._notify_entities()
@@ -535,6 +544,10 @@ class MeterMonitor:
             "counter_region": self.config.get(CONF_COUNTER_REGION),
             "dial_regions": self.config.get(CONF_DIAL_REGIONS),
         }
+
+
+def _digest(frame: bytes) -> str:
+    return hashlib.sha256(frame).hexdigest()
 
 
 def _read_frame(path: Path) -> tuple[bytes | None, datetime | None]:

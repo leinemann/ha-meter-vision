@@ -506,3 +506,40 @@ async def test_a_camera_failure_leaves_the_last_frame_alone(
     assert _state(hass, RESULT) == "error"
     assert entry.runtime_data.annotated == shown  # the old frame isn't relabelled with a newer outcome
     assert entry.runtime_data.annotation.outcome == "accepted"
+
+
+@pytest.mark.usefixtures("real_frames")
+async def test_after_a_restart_the_annotation_comes_back_on_its_own_frame(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_client
+) -> None:
+    FakeAI(hass, [ferro("00140925", "3")])
+    entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
+    await _advance(hass, freezer, 1)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    client = await hass_client()
+    assert entry.runtime_data.annotation.digits == "00140925"
+    assert await _picture(hass, client, LAST) != await _picture(hass, client, RAW)
+
+
+@pytest.mark.usefixtures("real_frames")
+@pytest.mark.parametrize("frame_file", ["newer", "missing"])
+async def test_a_restart_between_capture_and_answer_shows_the_frame_clean(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, hass_client, frame_file: str
+) -> None:
+    FakeAI(hass, [ferro("00140925", "3")])
+    entry = await _setup(hass, tmp_path, data=FERRO_DATA, options={**FERRO_OPTIONS, **REGIONS})
+    await _advance(hass, freezer, 1)
+    # Home Assistant stops after the next capture wrote its frame, before the answer saved the store.
+    path = tmp_path / "meter_vision" / "water_meter.jpg"
+    if frame_file == "newer":
+        path.write_bytes(_jpeg(7))
+    else:
+        path.unlink()
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.annotation is None  # the old digits are not drawn on a frame that never gave them
+    assert entry.runtime_data.annotated is None
+    if frame_file == "newer":
+        client = await hass_client()
+        assert await _picture(hass, client, LAST) == _jpeg(7)
