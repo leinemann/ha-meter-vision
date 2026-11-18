@@ -84,7 +84,8 @@
       "too_many_decimals": "The decimal digits must be fewer than the digits of the counter.",
       "same_ai_task": "Choose a different entity, or none.",
       "invalid_region": "Write four whole numbers: x, y, width, height (width and height above 0).",
-      "dial_regions_count": "Give one position per pointer dial, or none."
+      "dial_regions_count": "Give one position per pointer dial, or none.",
+      "region_too_narrow": "The counter position must be at least one pixel wide per digit: check the width."
     }
   },
   "selector": {

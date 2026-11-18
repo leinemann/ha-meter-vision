@@ -167,3 +167,19 @@ def test_annotation_round_trips_through_storage() -> None:
     assert Annotation.from_dict(note.as_dict()) == note
     assert Annotation.from_dict(None) is None
     assert Annotation.from_dict({"outcome": 3}) is None
+
+
+def test_a_region_narrower_than_its_digits_still_draws() -> None:
+    out = annotate(_frame(), Region(10, 10, 3, 20), [], 8, _note())
+    assert Image.open(BytesIO(out)).size == (WIDTH, HEIGHT)
+
+
+def test_labels_draw_with_the_bitmap_font_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pillow without FreeType falls back to a bitmap font, which has no text anchors."""
+    from PIL import ImageFont
+
+    from custom_components.meter_vision import annotate as module
+
+    monkeypatch.setattr(module, "_font", lambda size: ImageFont.load_default_imagefont())
+    out = annotate(_frame(), COUNTER, [DIAL], 8, _note(rolling=True))
+    assert Image.open(BytesIO(out)).size == (WIDTH, HEIGHT)

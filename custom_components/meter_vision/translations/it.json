@@ -84,7 +84,8 @@
       "too_many_decimals": "Le cifre decimali devono essere meno delle cifre del totalizzatore.",
       "same_ai_task": "Scegli un'entità diversa, oppure nessuna.",
       "invalid_region": "Scrivi quattro numeri interi: x, y, larghezza, altezza (larghezza e altezza maggiori di 0).",
-      "dial_regions_count": "Indica una posizione per ogni quadrante a lancetta, oppure nessuna."
+      "dial_regions_count": "Indica una posizione per ogni quadrante a lancetta, oppure nessuna.",
+      "region_too_narrow": "La posizione del contatore deve essere larga almeno un pixel per cifra: controlla la larghezza."
     }
   },
   "selector": {

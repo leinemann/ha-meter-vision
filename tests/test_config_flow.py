@@ -98,6 +98,7 @@ async def test_options_flow_regions(hass: HomeAssistant) -> None:
     result = await hass.config_entries.options.async_init(entry.entry_id)
     for regions, errors in (
         ({"counter_region": "192,158,296"}, {"counter_region": "invalid_region"}),
+        ({"counter_region": "192,158,7,50"}, {"counter_region": "region_too_narrow"}),
         ({"dial_regions": "430,288,104,104;1,1,5,5"}, {"dial_regions": "dial_regions_count"}),
         ({"dial_regions": "430,288,0,104"}, {"dial_regions": "invalid_region"}),
     ):

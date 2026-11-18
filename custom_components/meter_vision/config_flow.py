@@ -90,9 +90,12 @@ def _validate(user_input: dict[str, Any]) -> dict[str, str]:
         errors[CONF_AI_TASK_FALLBACK] = "same_ai_task"
     if counter := (user_input.get(CONF_COUNTER_REGION) or "").strip():
         try:
-            parse_region(counter)
+            region = parse_region(counter)
         except ValueError:
             errors[CONF_COUNTER_REGION] = "invalid_region"
+        else:
+            if region.width < digits:  # at least one pixel per wheel
+                errors[CONF_COUNTER_REGION] = "region_too_narrow"
     try:
         dials = parse_regions(user_input.get(CONF_DIAL_REGIONS))
     except ValueError:

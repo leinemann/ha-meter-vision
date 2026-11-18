@@ -49,7 +49,8 @@ class Region:
     @property
     def corners(self) -> tuple[int, int, int, int]:
         """Left, top, right, bottom (inclusive), as Pillow draws them."""
-        return self.x, self.y, self.x + self.width - 1, self.y + self.height - 1
+        # Never right of left - 1: a slice of a region narrower than its digits is 0 px wide.
+        return self.x, self.y, max(self.x, self.x + self.width - 1), max(self.y, self.y + self.height - 1)
 
 
 def parse_region(text: str) -> Region:
@@ -131,10 +132,12 @@ def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 def _label(draw: ImageDraw.ImageDraw, xy: tuple[int, int], text: str, colour: tuple[int, int, int], font: Any) -> None:
     """Text on a dark plate, centred on ``xy``, readable on any background."""
-    left, top, right, bottom = draw.textbbox(xy, text, font=font, anchor="mm")
+    # Centred by hand: the bitmap font Pillow falls back to without FreeType has no anchors.
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+    x, y = xy[0] - (left + right) // 2, xy[1] - (top + bottom) // 2
     pad = max(2, (bottom - top) // 6)
-    draw.rectangle((left - pad, top - pad, right + pad, bottom + pad), fill=BANNER)
-    draw.text(xy, text, fill=colour, font=font, anchor="mm")
+    draw.rectangle((x + left - pad, y + top - pad, x + right + pad, y + bottom + pad), fill=BANNER)
+    draw.text((x, y), text, fill=colour, font=font)
 
 
 def _draw_counter(
