@@ -543,3 +543,60 @@ async def test_a_restart_between_capture_and_answer_shows_the_frame_clean(
     if frame_file == "newer":
         client = await hass_client()
         assert await _picture(hass, client, LAST) == _jpeg(7)
+
+
+async def test_a_light_that_was_already_on_is_left_on(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path
+) -> None:
+    ai = FakeAI(hass, [answer("01250950")])
+    turn_on = async_mock_service(hass, "light", "turn_on")
+    turn_off = async_mock_service(hass, "light", "turn_off")
+    await _setup(hass, tmp_path)
+    hass.states.async_set("light.meter_flash", "on", {"brightness": 40})  # someone is using it
+    await _advance(hass, freezer, 1)
+    assert len(ai.calls) == 1
+    assert turn_on == []  # its brightness is theirs too
+    assert turn_off == []
+
+
+async def test_an_unexpected_ai_error_counts_as_a_failure(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path
+) -> None:
+    broken = RuntimeError("provider bug")
+    FakeAI(hass, [broken, broken, broken, broken, broken, broken, answer("01250930")])
+    notify = async_mock_service(hass, "notify", "phone")
+    await _setup(hass, tmp_path, options={**OPTIONS, "light_entity": None})
+    await _advance(hass, freezer, 1 + 15 + 15)
+    assert _state(hass, RESULT) == "error"
+    assert hass.states.get(RESULT).attributes["last_error"].endswith("provider bug")
+    assert hass.states.get(RESULT).attributes["consecutive_failures"] == 3
+    assert _state(hass, "binary_sensor.water_meter_problem") == "on"
+    assert notify
+
+
+async def test_an_unexpected_error_of_the_main_engine_falls_back(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path
+) -> None:
+    def by_engine(call: ServiceCall) -> dict[str, Any]:
+        if call.data["entity_id"] == "ai_task.vision":
+            raise RuntimeError("provider bug")
+        return answer("01250950")
+
+    FakeAI(hass, [by_engine])
+    await _setup(hass, tmp_path, options={**OPTIONS, "fallback_ai_task_entity": "ai_task.cloud"})
+    await _advance(hass, freezer, 1)
+    assert _state(hass, RESULT) == "accepted"
+    assert hass.states.get(RESULT).attributes["ai_engine"] == "ai_task.cloud"
+
+
+async def test_an_unexpected_camera_error_counts_as_a_failure(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path, _fast
+) -> None:
+    ai = FakeAI(hass, [answer("01250930")])
+    await _setup(hass, tmp_path, options={**OPTIONS, "light_entity": None})
+    _fast.side_effect = RuntimeError("driver bug")
+    await _advance(hass, freezer, 1)
+    assert ai.calls == []
+    assert _state(hass, RESULT) == "error"
+    assert hass.states.get(RESULT).attributes["last_error"] == "driver bug"
+    assert hass.states.get(RESULT).attributes["consecutive_failures"] == 1
