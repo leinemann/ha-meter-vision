@@ -32,7 +32,7 @@ jobs:
         with:
           persist-credentials: false
       # home-assistant/actions publishes no releases: pinned to master as of 2026-11-18.
-      - uses: home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361 # master
+      - uses: home-assistant/actions/hassfest@9e9565e68f5a70d874202871f4c4064d23814235 # master
 
   tests:
     name: Lint and tests
